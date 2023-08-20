@@ -17,8 +17,8 @@ pub unsafe extern "C" fn on_incoming_call(
     call_id: pjsua_call_id,
     _rdata: *mut pjsip_rx_data,
 ) {
-    let ci = MaybeUninit::<pjsua_call_info>::uninit().as_mut_ptr();
-    pjsua_call_get_info(call_id, ci);
+    let mut ci = MaybeUninit::<pjsua_call_info>::uninit();
+    pjsua_call_get_info(call_id, ci.as_mut_ptr());
 
     /* Automatically answer incoming calls with 200/OK */
     pjsua_call_answer(call_id, 200, ptr::null(), ptr::null());
@@ -28,18 +28,20 @@ fn main() {
     unsafe {
         let mut _status = pjsua_create();
 
-        let mut cfg = MaybeUninit::<pjsua_config>::uninit().as_mut_ptr();
-        pjsua_config_default(cfg);
+        let mut cfg_obj = MaybeUninit::<pjsua_config>::uninit();
+        pjsua_config_default(cfg_obj.as_mut_ptr());
 
+        let cfg = cfg_obj.as_mut_ptr();
         (*cfg).cb.on_incoming_call = Some(on_incoming_call);
 
-        let log_cfg = MaybeUninit::<pjsua_logging_config>::uninit().as_mut_ptr();
-        pjsua_logging_config_default(log_cfg);
+        let mut log_cfg_obj = MaybeUninit::<pjsua_logging_config>::uninit();
+        pjsua_logging_config_default(log_cfg_obj.as_mut_ptr());
 
-        _status = pjsua_init(cfg, log_cfg, ptr::null());
+        _status = pjsua_init(cfg, log_cfg_obj.as_mut_ptr(), ptr::null());
 
-        let mut t_cfg = MaybeUninit::<pjsua_transport_config>::uninit().as_mut_ptr();
-        pjsua_transport_config_default(t_cfg);
+        let mut t_cfg_obj = MaybeUninit::<pjsua_transport_config>::uninit();
+        pjsua_transport_config_default(t_cfg_obj.as_mut_ptr());
+        let t_cfg = t_cfg_obj.as_mut_ptr();
         (*t_cfg).port = 0;
 
         let mut transport_id = 0 as c_int;
@@ -51,8 +53,10 @@ fn main() {
 
         _status = pjsua_start();
 
-        let mut acc_cfg = MaybeUninit::<pjsua_acc_config>::uninit().as_mut_ptr();
-        pjsua_acc_config_default(acc_cfg);
+        let mut acc_cfg_obj = MaybeUninit::<pjsua_acc_config>::zeroed();
+        pjsua_acc_config_default(acc_cfg_obj.as_mut_ptr());
+
+        let acc_cfg = acc_cfg_obj.as_mut_ptr();
 
         let id =
             CString::new(&*format!("sip:{}@{}", SIP_USER, SIP_DOMAIN)).expect(CSTRING_NEW_FAILED);
@@ -78,9 +82,9 @@ fn main() {
         let password = CString::new(SIP_PASSWD).expect(CSTRING_NEW_FAILED);
         (*acc_cfg).cred_info[0].data = pj_str(password.as_ptr() as *mut i8);
 
-        let acc_id = MaybeUninit::<pjsua_acc_id>::uninit().as_mut_ptr();
+        let mut acc_id = MaybeUninit::<pjsua_acc_id>::uninit();
 
-        _status = pjsua_acc_add(acc_cfg, pj_constants__PJ_TRUE as i32, acc_id);
+        _status = pjsua_acc_add(acc_cfg, pj_constants__PJ_TRUE as i32, acc_id.as_mut_ptr());
 
         pj_thread_sleep(10000);
 
