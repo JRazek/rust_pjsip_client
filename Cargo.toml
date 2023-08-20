@@ -1,0 +1,11 @@
+[package]
+
+name = "pjsip-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pjsua = { git = "https://github.com/pjsip/pjproject.git" }
+
+[build-dependencies]
+pkg-config = "0.3.27"
