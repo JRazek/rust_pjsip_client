@@ -25,10 +25,25 @@ impl From<pjsua::pj_status_t> for Error {
     }
 }
 
-pub fn get_error(code: pjsua::pj_status_t) -> Option<Error> {
+pub fn get_error_as_option(code: pjsua::pj_status_t) -> Option<Error> {
     const PJSUA_SUCCESS: i32 = pjsua::pj_constants__PJ_SUCCESS as i32;
     match code {
         PJSUA_SUCCESS => None,
         _ => Some(Error::from(code)),
+    }
+}
+
+pub fn get_error_as_result(code: pjsua::pj_status_t) -> Result<(), Error> {
+    const PJSUA_SUCCESS: i32 = pjsua::pj_constants__PJ_SUCCESS as i32;
+    match code {
+        PJSUA_SUCCESS => Ok(()),
+        _ => Err(Error::from(code)),
+    }
+}
+
+pub fn map_option_to_result<T>(error: Option<Error>) -> Result<(), Error> {
+    match error {
+        Some(error) => Err(error),
+        None => Ok(()),
     }
 }

@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::MaybeUninit, os::raw::c_int, ptr};
 
-use super::error::{get_error as get_pjsua_error, Error as PjsuaError};
+use super::error::{get_error_as_option as get_pjsua_error, Error as PjsuaError};
 
 const CSTRING_NEW_FAILED: &str = "CString::new failed!";
 
@@ -9,7 +9,7 @@ struct PjsuaConfig {
 }
 
 impl PjsuaConfig {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut cfg = unsafe { MaybeUninit::<pjsua::pjsua_config>::zeroed().assume_init() };
         unsafe {
             pjsua::pjsua_config_default(&mut cfg);
@@ -24,7 +24,7 @@ struct AccountConfig {
 }
 
 impl AccountConfig {
-    fn new(username: &str, password: &str, domain: &str) -> Result<Self, super::error::Error> {
+    pub fn new(username: &str, password: &str, domain: &str) -> Result<Self, super::error::Error> {
         let id = CString::new(&*format!("sip:{}@{}", username, domain)).expect(CSTRING_NEW_FAILED);
         let uri = CString::new(&*format!("sip:{}", domain)).expect(CSTRING_NEW_FAILED);
 
