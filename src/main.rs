@@ -53,38 +53,39 @@ fn main() {
 
         _status = pjsua_start();
 
-        let mut acc_cfg_obj = MaybeUninit::<pjsua_acc_config>::zeroed();
-        pjsua_acc_config_default(acc_cfg_obj.as_mut_ptr());
-
-        let acc_cfg = acc_cfg_obj.as_mut_ptr();
+        let mut acc_cfg = MaybeUninit::<pjsua_acc_config>::zeroed().assume_init();
+        pjsua_acc_config_default(&mut acc_cfg);
 
         let id =
             CString::new(&*format!("sip:{}@{}", SIP_USER, SIP_DOMAIN)).expect(CSTRING_NEW_FAILED);
-        (*acc_cfg).id = pj_str(id.as_ptr() as *mut i8);
+        acc_cfg.id = pj_str(id.as_ptr() as *mut i8);
 
         let uri = CString::new(&*format!("sip:{}", SIP_DOMAIN)).expect(CSTRING_NEW_FAILED);
-        (*acc_cfg).reg_uri = pj_str(uri.as_ptr() as *mut i8);
+        acc_cfg.reg_uri = pj_str(uri.as_ptr() as *mut i8);
 
-        (*acc_cfg).cred_count = 1;
+        acc_cfg.cred_count = 1;
 
         let all_realm = CString::new("*").expect(CSTRING_NEW_FAILED);
-        (*acc_cfg).cred_info[0].realm = pj_str(all_realm.as_ptr() as *mut i8);
+        acc_cfg.cred_info[0].realm = pj_str(all_realm.as_ptr() as *mut i8);
 
         let digest = CString::new("digest").expect(CSTRING_NEW_FAILED);
-        (*acc_cfg).cred_info[0].scheme = pj_str(digest.as_ptr() as *mut i8);
+        acc_cfg.cred_info[0].scheme = pj_str(digest.as_ptr() as *mut i8);
 
         let username = CString::new(SIP_USER).expect(CSTRING_NEW_FAILED);
-        (*acc_cfg).cred_info[0].username = pj_str(username.as_ptr() as *mut i8);
+        acc_cfg.cred_info[0].username = pj_str(username.as_ptr() as *mut i8);
 
-        (*acc_cfg).cred_info[0].data_type =
-            pjsip_cred_data_type_PJSIP_CRED_DATA_PLAIN_PASSWD as i32;
+        acc_cfg.cred_info[0].data_type = pjsip_cred_data_type_PJSIP_CRED_DATA_PLAIN_PASSWD as i32;
 
         let password = CString::new(SIP_PASSWD).expect(CSTRING_NEW_FAILED);
-        (*acc_cfg).cred_info[0].data = pj_str(password.as_ptr() as *mut i8);
+        acc_cfg.cred_info[0].data = pj_str(password.as_ptr() as *mut i8);
 
         let mut acc_id = MaybeUninit::<pjsua_acc_id>::uninit();
 
-        _status = pjsua_acc_add(acc_cfg, pj_constants__PJ_TRUE as i32, acc_id.as_mut_ptr());
+        _status = pjsua_acc_add(
+            &mut acc_cfg,
+            pj_constants__PJ_TRUE as i32,
+            acc_id.as_mut_ptr(),
+        );
 
         pj_thread_sleep(10000);
 
