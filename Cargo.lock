@@ -108,6 +108,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "delegate"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ee5df75c70b95bd3aacc8e2fd098797692fb1d54121019c4de481e42f04c8a1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "either"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -241,6 +252,7 @@ checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 name = "pjsip-client"
 version = "0.1.0"
 dependencies = [
+ "delegate",
  "pjsua",
  "pkg-config",
 ]
@@ -248,7 +260,7 @@ dependencies = [
 [[package]]
 name = "pjsua"
 version = "0.1.0"
-source = "git+https://github.com/pjsip/pjproject.git#828d8d19072f694eccba8ab5f4fa9487e1712b28"
+source = "git+https://github.com/pjsip/pjproject.git#d51e2471352bfb6fff216ec536a5aec907e1fc01"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -324,6 +336,17 @@ name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
+
+[[package]]
+name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
 
 [[package]]
 name = "termcolor"

@@ -86,7 +86,7 @@ impl AccountConfig {
         let cred_info0 = CredInfo::new("*", "digest", username, password, domain);
         pjsua_acc_cfg.cred_info[0] = *cred_info0.cred_info;
 
-        let mut account_config = Self {
+        let account_config = Self {
             account_config,
             id_owned: id,
             uri_owned: uri,

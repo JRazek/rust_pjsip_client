@@ -6,6 +6,15 @@ edition = "2021"
 
 [dependencies]
 pjsua = { git = "https://github.com/pjsip/pjproject.git" }
+delegate = "0.10.0"
 
 [build-dependencies]
 pkg-config = "0.3.27"
+
+[[bin]]
+name = "example1"
+path = "examples/example1.rs"
+
+[[bin]]
+name = "example2"
+path = "examples/example2.rs"

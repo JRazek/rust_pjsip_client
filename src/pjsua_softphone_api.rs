@@ -47,7 +47,19 @@ pub struct PjsuaInstanceInit {
     pjsua_config: pjsua_config::PjsuaConfig,
     log_config: pjsua_config::LogConfig,
     accounts: Vec<pjsua_account_config::AccountConfigAdded>,
-    transport: Option<transport::PjsuaTransport>,
+}
+
+pub struct PjsuaInstanceInitTransportSet {
+    pjsua_instance_init: PjsuaInstanceInit,
+    transport: transport::PjsuaTransport,
+}
+
+impl PjsuaInstanceInitTransportSet {
+    delegate::delegate! {
+        to self.pjsua_instance_init {
+            pub fn add_account(&mut self, account: pjsua_account_config::AccountConfig);
+        }
+    }
 }
 
 impl PjsuaInstanceUninit {
@@ -72,7 +84,10 @@ impl PjsuaInstanceInit {
         self.accounts.push(account_added);
     }
 
-    pub fn set_transport(&mut self, mut transport: transport::PjsuaTransport) {
+    pub fn set_transport(
+        self,
+        mut transport: transport::PjsuaTransport,
+    ) -> PjsuaInstanceInitTransportSet {
         unsafe {
             let mut transport_id: pjsua::pjsua_transport_id = 0;
 
@@ -82,7 +97,12 @@ impl PjsuaInstanceInit {
                 &mut transport_id,
             );
 
-            self.transport = Some(transport);
+            let instance_transport_set = PjsuaInstanceInitTransportSet {
+                pjsua_instance_init: self,
+                transport,
+            };
+
+            instance_transport_set
         }
     }
 }
@@ -102,7 +122,6 @@ impl PjsuaInstanceInit {
         PjsuaInstanceInit {
             handle: instance.handle,
             accounts: Vec::new(),
-            transport: None,
             pjsua_config,
             log_config,
         }
