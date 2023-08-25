@@ -96,6 +96,8 @@ impl PjsuaInstanceUninit {
             PjsuaInstanceInit::from(self, pjsua_config, log_cfg)
         }
     }
+
+    pub async fn accept_call(&self) -> () {}
 }
 
 impl PjsuaInstanceInit {
