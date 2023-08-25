@@ -9,17 +9,15 @@ fn main() {
 
     let pjsua_config = PjsuaConfig::new();
 
-    let mut instance = instance.init(pjsua_config);
+    let instance = instance.init(pjsua_config);
 
     let transport = PjsuaTransport::new(None);
 
-    instance.set_transport(transport);
-
-    unsafe {
-        pjsua::pjsua_start();
-    }
+    let mut instance = instance.set_transport(transport);
 
     let account_config = AccountConfig::new("username", "password", "sip_server");
 
     instance.add_account(account_config);
+
+    let instance = instance.start();
 }

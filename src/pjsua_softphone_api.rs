@@ -3,6 +3,7 @@ use std::{marker::PhantomData, ptr};
 
 use crate::error::{get_error_as_option, get_error_as_result};
 use crate::{pjsua_account_config, pjsua_config, pjsua_types, transport};
+use delegate::delegate;
 
 struct PjsuaInstanceHandle {
     _private: (),
@@ -49,15 +50,34 @@ pub struct PjsuaInstanceInit {
     accounts: Vec<pjsua_account_config::AccountConfigAdded>,
 }
 
-pub struct PjsuaInstanceInitTransportSet {
+pub struct NotStarted;
+pub struct Started;
+
+pub struct PjsuaInstanceInitTransportConfigured<State = NotStarted> {
     pjsua_instance_init: PjsuaInstanceInit,
     transport: transport::PjsuaTransport,
+
+    _state: PhantomData<State>,
 }
 
-impl PjsuaInstanceInitTransportSet {
-    delegate::delegate! {
+impl PjsuaInstanceInitTransportConfigured<NotStarted> {
+    delegate! {
         to self.pjsua_instance_init {
             pub fn add_account(&mut self, account: pjsua_account_config::AccountConfig);
+        }
+    }
+}
+
+impl PjsuaInstanceInitTransportConfigured<NotStarted> {
+    pub fn start(self) -> PjsuaInstanceInitTransportConfigured<Started> {
+        unsafe {
+            pjsua::pjsua_start();
+        }
+
+        PjsuaInstanceInitTransportConfigured {
+            pjsua_instance_init: self.pjsua_instance_init,
+            transport: self.transport,
+            _state: PhantomData,
         }
     }
 }
@@ -87,7 +107,7 @@ impl PjsuaInstanceInit {
     pub fn set_transport(
         self,
         mut transport: transport::PjsuaTransport,
-    ) -> PjsuaInstanceInitTransportSet {
+    ) -> PjsuaInstanceInitTransportConfigured<NotStarted> {
         unsafe {
             let mut transport_id: pjsua::pjsua_transport_id = 0;
 
@@ -97,9 +117,10 @@ impl PjsuaInstanceInit {
                 &mut transport_id,
             );
 
-            let instance_transport_set = PjsuaInstanceInitTransportSet {
+            let instance_transport_set = PjsuaInstanceInitTransportConfigured {
                 pjsua_instance_init: self,
                 transport,
+                _state: PhantomData,
             };
 
             instance_transport_set
