@@ -7,6 +7,7 @@ edition = "2021"
 [dependencies]
 pjsua = { git = "https://github.com/pjsip/pjproject.git" }
 delegate = "0.10.0"
+tokio = { version = "1.32.0", features = ["full"] }
 
 [build-dependencies]
 pkg-config = "0.3.27"

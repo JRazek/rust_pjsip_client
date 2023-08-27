@@ -47,3 +47,23 @@ pub fn map_option_to_result<T>(error: Option<Error>) -> Result<(), Error> {
         None => Ok(()),
     }
 }
+
+#[macro_export]
+macro_rules! ffi_assert {
+    ($cond:expr) => {
+        if !$cond {
+            let backtrace = std::backtrace::Backtrace::capture();
+            eprintln!("Assertion failed: {}", stringify!($cond));
+            eprintln!("{:?}", backtrace);
+            std::process::exit(1);
+        }
+    };
+    ($cond:expr, $($arg:tt)*) => {
+        if !$cond {
+            let backtrace = std::backtrace::Backtrace::capture();
+            eprintln!("Assertion failed: {}", stringify!($cond));
+            eprintln!("{:?}", backtrace);
+            std::process::exit(1);
+        }
+    };
+}

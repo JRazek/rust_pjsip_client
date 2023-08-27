@@ -1,35 +1,42 @@
-use super::pjsua_types::PjsipRxData;
-use super::transport::PjsuaTransport;
-use pjsua::pj_strcpy2;
-use std::{ffi::CString, mem::MaybeUninit, ops::DerefMut, os::raw::c_int, ptr};
+use crate::{
+    ffi_assert,
+    pjsua_account_config::cb_user_data::{AccountConfigUserData, OnIncomingCallSendData},
+};
 
-use super::error::{get_error_as_option as get_pjsua_error, Error as PjsuaError};
+use std::mem::MaybeUninit;
 
 pub unsafe extern "C" fn on_incoming_call(
     acc_id: pjsua::pjsua_acc_id,
     _call_id: pjsua::pjsua_call_id,
     rx_data: *mut pjsua::pjsip_rx_data,
 ) {
-    let mut acc_info: pjsua::pjsua_acc_info = MaybeUninit::zeroed().assume_init();
-    pjsua::pjsua_acc_get_info(acc_id, &mut acc_info);
+    ffi_assert!(!rx_data.is_null(), "rx_data musn't be null!");
 
-    let rx_data = PjsipRxData::try_from(*rx_data).expect("PjsipRxData::try_from failed!");
+    let rx_data = rx_data.as_mut().unwrap();
+    let transport_info = rx_data.tp_info;
+    let _transport = transport_info.transport.as_ref().unwrap();
 
-    let rx_data: pjsua::pjsip_rx_data = rx_data.into();
+    let account_user_data = pjsua::pjsua_acc_get_user_data(acc_id) as *mut AccountConfigUserData;
 
-    let ctype = *rx_data.msg_info.ctype;
+    ffi_assert!(
+        !account_user_data.is_null(),
+        "callback user data musn't be null!"
+    );
 
-    let name = std::slice::from_raw_parts(ctype.name.ptr as *mut u8, ctype.name.slen as usize);
-    let content_type = std::str::from_utf8(name).expect("str::from_utf8 failed!");
+    //user data should be valid, allocated ptr here due to ffi_assert!
+    //also, since pjsua_acc_del is called on Drop in AccountConfigAdded, where this buffer is allocated,
+    //also not that this value is not stored in reference/box due to aliasing invariants of Rust.
+    let account_user_data = account_user_data as *const AccountConfigUserData;
 
-    eprintln!("{:?}: {}", content_type, ctype.type_);
+    ffi_assert!(
+        !account_user_data.is_null(),
+        "on_incoming_call_tx channel is closed!"
+    );
+
+    let incoming_call_tx = &(*account_user_data).on_incoming_call_tx;
+    let send_data: OnIncomingCallSendData = acc_id;
+    incoming_call_tx.send(send_data).unwrap();
 }
-
-type RawCallbackType = unsafe extern "C" fn(
-    acc_id: pjsua::pjsua_acc_id,
-    call_id: pjsua::pjsua_call_id,
-    rx_data: *mut pjsua::pjsip_rx_data,
-);
 
 pub struct PjsuaConfig {
     pjsua_config: Box<pjsua::pjsua_config>,

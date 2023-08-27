@@ -1,10 +1,12 @@
 use std::{ffi::CString, mem::MaybeUninit};
 
-use crate::{pjsua_softphone_api, pjsua_types};
+use crate::{ffi_assert, pjsua_softphone_api, pjsua_types};
 
 use pjsua::pj_str;
 
 const CSTRING_NEW_FAILED: &str = "CString::new failed!";
+
+use std::sync::mpsc;
 
 pub struct AccountConfigAdded {
     account_id: pjsua::pjsua_acc_id,
@@ -16,6 +18,7 @@ pub struct AccountConfig {
     cred_info: Vec<CredInfo>,
     id_owned: CString,
     uri_owned: CString,
+    on_incoming_call_rx: mpsc::Receiver<cb_user_data::OnIncomingCallSendData>,
 }
 
 struct CredInfo {
@@ -59,17 +62,26 @@ impl CredInfo {
 }
 
 impl AccountConfig {
-    #[allow(dead_code)]
     pub fn new(username: &str, password: &str, domain: &str) -> Self {
-        let mut account_config = unsafe {
+        let (mut account_config, on_incoming_call_rx) = unsafe {
             let mut account_config =
                 Box::new(MaybeUninit::<pjsua::pjsua_acc_config>::zeroed().assume_init());
 
             pjsua::pjsua_acc_config_default(account_config.as_mut());
 
-            account_config
+            let (on_incoming_call_tx, on_incoming_call_rx) = mpsc::channel();
+
+            let on_incoming_call_tx = Box::new(cb_user_data::AccountConfigUserData {
+                on_incoming_call_tx,
+            });
+
+            account_config.user_data =
+                Box::into_raw(on_incoming_call_tx) as *mut ::std::os::raw::c_void;
+
+            assert!(!account_config.user_data.is_null());
+
+            (account_config, on_incoming_call_rx)
         };
-        //
 
         let id = CString::new(&*format!("sip:{}@{}", username, domain)).expect(CSTRING_NEW_FAILED);
         let uri = CString::new(&*format!("sip:{}", domain)).expect(CSTRING_NEW_FAILED);
@@ -91,6 +103,7 @@ impl AccountConfig {
             id_owned: id,
             uri_owned: uri,
             cred_info: vec![cred_info0],
+            on_incoming_call_rx,
         };
 
         account_config
@@ -101,21 +114,27 @@ impl AccountConfig {
 
         let account_raw = self.as_mut();
 
-        let mut id: pjsua::pjsua_acc_id = 0;
+        let mut account_id: pjsua::pjsua_acc_id = 2;
 
         unsafe {
             if let Err(status) = get_error_as_result(pjsua::pjsua_acc_add(
                 account_raw,
                 pjsua::pj_constants__PJ_TRUE as i32,
-                &mut id,
+                &mut account_id,
             )) {
                 panic!("pjsua_acc_add failed with status: {}", status.message);
             }
+
+            let user_data = pjsua::pjsua_acc_get_user_data(account_id);
+
+            ffi_assert!(!user_data.is_null());
         }
+
+        eprintln!("added account. account_id: {}", account_id);
 
         AccountConfigAdded {
             account_config: self,
-            account_id: id,
+            account_id,
         }
     }
 }
@@ -123,7 +142,19 @@ impl AccountConfig {
 impl Drop for AccountConfigAdded {
     fn drop(&mut self) {
         unsafe {
+            let on_incoming_call_tx = pjsua::pjsua_acc_get_user_data(self.account_id)
+                as *mut cb_user_data::AccountConfigUserData;
+
+            assert!(!on_incoming_call_tx.is_null());
             pjsua::pjsua_acc_del(self.account_id);
+
+            //assuming that on_incoming_call cb is neigther in progress nor to be called again
+            //this assumption is made on the premises of:
+            //https://docs.pjsip.org/en/latest/_static/PJSIP-Dev-Guide.pdf#page=13 [[Thread Safety]]
+
+            eprintln!("dropping on_incoming_call_tx...");
+            let on_incoming_call_tx = Box::from_raw(on_incoming_call_tx);
+            drop(on_incoming_call_tx);
         }
     }
 }
@@ -137,5 +168,22 @@ impl AsMut<pjsua::pjsua_acc_config> for AccountConfigAdded {
 impl AsMut<pjsua::pjsua_acc_config> for AccountConfig {
     fn as_mut(&mut self) -> &mut pjsua::pjsua_acc_config {
         &mut self.account_config
+    }
+}
+
+pub(crate) mod cb_user_data {
+    use std::sync::mpsc::Sender;
+
+    #[allow(unused_parens)]
+    pub(crate) type OnIncomingCallSendData = (pjsua::pjsua_acc_id);
+
+    pub struct AccountConfigUserData {
+        pub(crate) on_incoming_call_tx: Sender<OnIncomingCallSendData>,
+    }
+
+    impl Drop for AccountConfigUserData {
+        fn drop(&mut self) {
+            eprintln!("dropping AccountConfigUserData...");
+        }
     }
 }

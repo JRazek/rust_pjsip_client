@@ -1,3 +1,4 @@
+use std::mem::ManuallyDrop;
 use std::sync::Mutex;
 use std::{marker::PhantomData, ptr};
 
@@ -6,6 +7,7 @@ use crate::{pjsua_account_config, pjsua_config, pjsua_types, transport};
 use delegate::delegate;
 
 struct PjsuaInstanceHandle {
+    _not_send_sync: PhantomData<*const ()>,
     _private: (),
 }
 
@@ -29,7 +31,10 @@ impl PjsuaInstanceHandle {
                     unsafe {
                         pjsua::pjsua_create();
                     }
-                    Some(PjsuaInstanceHandle { _private: () })
+                    Some(PjsuaInstanceHandle {
+                        _private: (),
+                        _not_send_sync: PhantomData,
+                    })
                 }
                 true => None,
             };
@@ -43,11 +48,14 @@ pub struct PjsuaInstanceUninit {
     handle: PjsuaInstanceHandle,
 }
 
+//keep in mind the order of fields.
+//The order of fields is important for the drop order.
+//PjsuaInstanceInit MUST be dropped as the last, as it uninitializes pjsua completely.
 pub struct PjsuaInstanceInit {
-    handle: PjsuaInstanceHandle,
-    pjsua_config: pjsua_config::PjsuaConfig,
-    log_config: pjsua_config::LogConfig,
     accounts: Vec<pjsua_account_config::AccountConfigAdded>,
+    log_config: pjsua_config::LogConfig,
+    pjsua_config: pjsua_config::PjsuaConfig,
+    handle: PjsuaInstanceHandle,
 }
 
 pub struct NotStarted;
