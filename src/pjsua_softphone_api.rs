@@ -70,12 +70,12 @@ pub struct PjsuaInstanceInitTransportConfigured {
 }
 
 pub struct PjsuaInstanceStarted {
-    accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
+    _accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
     new_calls_rx: mpsc::Receiver<OnIncomingCallSendData>,
-    log_config: pjsua_config::LogConfig,
-    pjsua_config: pjsua_config::PjsuaConfig,
-    transport: transport::PjsuaTransport,
-    handle: PjsuaInstanceHandle,
+    _log_config: pjsua_config::LogConfig,
+    _pjsua_config: pjsua_config::PjsuaConfig,
+    _transport: transport::PjsuaTransport,
+    _handle: PjsuaInstanceHandle,
 }
 
 impl PjsuaInstanceInitTransportConfigured {
@@ -109,12 +109,12 @@ impl PjsuaInstanceInitTransportConfigured {
             });
 
         PjsuaInstanceStarted {
-            accounts: self.pjsua_instance_init.accounts,
+            _accounts: self.pjsua_instance_init.accounts,
             new_calls_rx: all_accounts_rx,
-            log_config: self.pjsua_instance_init.log_config,
-            pjsua_config: self.pjsua_instance_init.pjsua_config,
-            transport: self.transport,
-            handle: self.pjsua_instance_init.handle,
+            _log_config: self.pjsua_instance_init.log_config,
+            _pjsua_config: self.pjsua_instance_init.pjsua_config,
+            _transport: self.transport,
+            _handle: self.pjsua_instance_init.handle,
         }
     }
 }

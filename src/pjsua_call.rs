@@ -73,7 +73,7 @@ impl Drop for PjsuaIncomingCall {
 
 #[derive(Debug)]
 pub struct PjsuaCall {
-    account_id: pjsua::pjsua_acc_id,
+    _account_id: pjsua::pjsua_acc_id,
     call_id: pjsua::pjsua_call_id,
 }
 
@@ -82,7 +82,7 @@ impl PjsuaCall {
         accept_incoming(incoming_call.call_id)?;
 
         Ok(Self {
-            account_id: incoming_call.account_id,
+            _account_id: incoming_call.account_id,
             call_id: incoming_call.call_id,
         })
     }

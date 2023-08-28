@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::MaybeUninit};
 
-use crate::{ffi_assert, pjsua_softphone_api, pjsua_types};
+use crate::{ffi_assert, pjsua_softphone_api};
 
 use pjsua::pj_str;
 
@@ -28,9 +28,9 @@ impl IncomingCallReceiver {
 
 pub struct AccountConfig {
     account_config: Box<pjsua::pjsua_acc_config>,
-    cred_info: Vec<CredInfo>,
-    id_owned: CString,
-    uri_owned: CString,
+    _cred_info: Vec<CredInfo>,
+    _id_owned: CString,
+    _uri_owned: CString,
 }
 
 struct CredInfo {
@@ -116,9 +116,9 @@ impl AccountConfig {
 
         let account_config = Self {
             account_config,
-            id_owned: id,
-            uri_owned: uri,
-            cred_info: vec![cred_info0],
+            _id_owned: id,
+            _uri_owned: uri,
+            _cred_info: vec![cred_info0],
         };
 
         (account_config, on_incoming_call_rx)
