@@ -6,6 +6,18 @@ pub struct PjsuaError {
     pub message: String,
 }
 
+impl std::fmt::Display for PjsuaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "PjsuaError: code: {}, message: {}",
+            self.code, self.message
+        )
+    }
+}
+
+impl std::error::Error for PjsuaError {}
+
 impl From<pjsua::pj_status_t> for PjsuaError {
     fn from(code: pjsua::pj_status_t) -> Self {
         let message = unsafe {

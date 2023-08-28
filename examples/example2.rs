@@ -22,9 +22,17 @@ async fn main() {
 
     let mut instance = instance.start();
 
-    let call = instance.next_call().await;
+    let incoming_call = instance.next_call().await;
 
-    println!("call: {:?}", call);
+    println!("call: {:?}", incoming_call);
+
+    println!("answering...");
+
+    let call = incoming_call.answer_ok().expect("answer failed!");
 
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+    println!("hanging up...");
+
+    call.hangup().expect("hangup failed!");
 }
