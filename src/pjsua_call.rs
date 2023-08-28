@@ -1,4 +1,5 @@
 use super::error::{get_error_as_result, PjsuaError};
+use super::pjmedia_bridge::PjmediaBridge;
 use std::ptr;
 
 fn accept_incoming(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
@@ -28,6 +29,19 @@ fn hangup_call(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
     Ok(())
 }
 
+fn connect_ports(
+    call_id: pjsua::pjsua_call_id,
+    sink_port: pjsua::pjmedia_port,
+    source_port: pjsua::pjmedia_port,
+) -> Result<(), PjsuaError> {
+    unsafe {
+        //        let status = pjsua::pjmedia_conf_connect_port(sink_port, source_port);
+        //        get_error_as_result(status)?;
+    }
+
+    Ok(())
+}
+
 #[derive(Debug)]
 enum IncomingStatus {
     Answered,
@@ -50,12 +64,12 @@ impl PjsuaIncomingCall {
         }
     }
 
-    pub fn answer_ok(
+    pub fn answer_ok<'a, Sink: PjsuaSinkMediaPort<'a>>(
         mut self,
-        pjsua_sink_media_port: impl PjsuaSinkMediaPort,
-    ) -> Result<PjsuaCall, PjsuaError> {
+        sink: Sink,
+    ) -> Result<PjsuaCall<'a, Sink>, PjsuaError> {
         self.status = Some(IncomingStatus::Answered);
-        PjsuaCall::new(self, pjsua_sink_media_port)
+        PjsuaCall::new(self, sink)
     }
 
     pub fn reject(mut self) -> Result<(), PjsuaError> {
@@ -75,22 +89,25 @@ impl Drop for PjsuaIncomingCall {
 }
 
 #[derive(Debug)]
-pub struct PjsuaCall {
+pub struct PjsuaCall<'a, Sink: PjsuaSinkMediaPort<'a>> {
     _account_id: pjsua::pjsua_acc_id,
     call_id: pjsua::pjsua_call_id,
+    _phantom: std::marker::PhantomData<&'a Sink>,
+    _sink: Sink,
 }
 
-impl PjsuaCall {
-    fn new(
-        incoming_call: PjsuaIncomingCall,
-        pjsua_sink_media_port: impl PjsuaSinkMediaPort,
-    ) -> Result<Self, PjsuaError> {
+impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
+    fn new(incoming_call: PjsuaIncomingCall, sink: Sink) -> Result<Self, PjsuaError> {
         accept_incoming(incoming_call.call_id)?;
 
-        Ok(Self {
+        let capture_media = Ok(Self {
             _account_id: incoming_call.account_id,
             call_id: incoming_call.call_id,
-        })
+            _phantom: std::marker::PhantomData,
+            _sink: sink,
+        });
+
+        capture_media
     }
 
     pub fn hangup(self) -> Result<(), PjsuaError> {
@@ -100,4 +117,6 @@ impl PjsuaCall {
     }
 }
 
-pub trait PjsuaSinkMediaPort {}
+pub trait PjsuaSinkMediaPort<'a> {
+    fn as_pjmedia_port(&mut self) -> *mut pjsua::pjmedia_port;
+}

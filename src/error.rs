@@ -24,11 +24,10 @@ impl From<pjsua::pj_status_t> for PjsuaError {
             let mut buffer = [0u8; 256];
             let ptr = buffer.as_mut_ptr() as *mut i8;
 
-            _ = pjsua::pj_strerror(code, ptr, buffer.len() as pjsua::pj_size_t);
+            let pjstr = pjsua::pj_strerror(code, ptr, buffer.len() as pjsua::pj_size_t);
 
-            let str = CString::from_raw(ptr)
-                .into_string()
-                .expect("CString::into_string failed!");
+            let str =
+                String::from_iter(buffer.iter().take(pjstr.slen as usize).map(|&c| c as char));
 
             str
         };

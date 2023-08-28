@@ -1,4 +1,6 @@
 use std::ffi::CStr;
+
+#[derive(Debug)]
 pub struct PjsuaMemoryPool {
     pjsua_pool: *mut pjsua::pj_pool_t,
 }
@@ -16,11 +18,9 @@ impl PjsuaMemoryPool {
             pool => Some(PjsuaMemoryPool { pjsua_pool: pool }),
         }
     }
-}
 
-impl AsMut<pjsua::pj_pool_t> for PjsuaMemoryPool {
-    fn as_mut(&mut self) -> &mut pjsua::pj_pool_t {
-        unsafe { &mut *self.pjsua_pool }
+    pub fn as_mut(&mut self) -> *mut pjsua::pj_pool_t {
+        self.pjsua_pool
     }
 }
 

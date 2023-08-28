@@ -2,22 +2,23 @@ use super::pjsua_memory_pool::PjsuaMemoryPool;
 use crate::ffi_assert;
 use std::ptr;
 
+use super::error::PjsuaError;
+
 use super::error::{get_error_as_option, get_error_as_result};
 
 extern "C" fn pjmedia_mem_capture_set_eof_cb(
     _port: *mut pjsua::pjmedia_port,
-    user_data: *mut ::std::os::raw::c_void,
+    _user_data: *mut ::std::os::raw::c_void,
 ) -> pjsua::pj_status_t {
-    unsafe {}
-
     0
 }
 
+#[derive(Debug)]
 pub struct PjsuaSinkBufferMediaPort<'a> {
     //this holds the buffer
     media_port: *mut pjsua::pjmedia_port,
     buffer_ptr: *mut Vec<u8>,
-    _pjsua_pool: &'a mut PjsuaMemoryPool,
+    _pjsua_pool: &'a PjsuaMemoryPool,
 }
 
 impl<'a> PjsuaSinkBufferMediaPort<'a> {
@@ -26,9 +27,8 @@ impl<'a> PjsuaSinkBufferMediaPort<'a> {
         sample_rate: usize,
         channels_count: usize,
         samples_per_frame: usize,
-        bits_per_sample: usize,
         pjsua_pool: &'a mut PjsuaMemoryPool,
-    ) -> Option<PjsuaSinkBufferMediaPort<'a>> {
+    ) -> Result<PjsuaSinkBufferMediaPort<'a>, PjsuaError> {
         let mut buffer: Box<Vec<u8>> = Box::new(Vec::with_capacity(buffer_size));
 
         let media_port = unsafe {
@@ -40,39 +40,38 @@ impl<'a> PjsuaSinkBufferMediaPort<'a> {
                 pjsua_pool.as_mut(),
                 buffer_raw_bytes as *mut _,
                 buffer_size as u64,
-                buffer_size as u32,
                 sample_rate as u32,
                 channels_count as u32,
                 samples_per_frame as u32,
-                bits_per_sample as u32,
+                16 as u32,
+                0,
                 &mut media_port,
             );
 
-            get_error_as_option(status)?;
+            get_error_as_result(status)?;
 
             media_port
         };
 
+        ffi_assert!(!media_port.is_null());
+
         let buffer_ptr = Box::into_raw(buffer);
 
-        let status = unsafe {
+        let _ = unsafe {
             let status = pjsua::pjmedia_mem_capture_set_eof_cb(
                 media_port,
                 buffer_ptr as *mut _,
                 Some(pjmedia_mem_capture_set_eof_cb),
             );
 
-            get_error_as_result(status)
+            get_error_as_result(status)?
         };
 
-        match status {
-            Ok(_) => Some(PjsuaSinkBufferMediaPort {
-                media_port,
-                buffer_ptr,
-                _pjsua_pool: pjsua_pool,
-            }),
-            _ => None,
-        }
+        Ok(PjsuaSinkBufferMediaPort {
+            media_port,
+            buffer_ptr,
+            _pjsua_pool: pjsua_pool,
+        })
     }
 }
 
@@ -88,5 +87,13 @@ impl<'a> Drop for PjsuaSinkBufferMediaPort<'a> {
         ffi_assert!(!self.buffer_ptr.is_null());
 
         let _ = unsafe { Box::from_raw(self.buffer_ptr) };
+    }
+}
+
+use super::pjsua_call::PjsuaSinkMediaPort;
+
+impl<'a> PjsuaSinkMediaPort<'a> for PjsuaSinkBufferMediaPort<'a> {
+    fn as_pjmedia_port(&mut self) -> *mut pjsua::pjmedia_port {
+        self.media_port as *mut _
     }
 }

@@ -6,4 +6,5 @@ pub mod pjsua_memory_pool;
 pub mod pjsua_sink_buffer_media_port;
 pub mod pjsua_softphone_api;
 pub mod pjsua_stream_buffer_media_port;
+pub mod pjmedia_bridge;
 pub mod transport;
