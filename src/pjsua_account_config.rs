@@ -190,7 +190,7 @@ pub(crate) mod cb_user_data {
     use tokio::sync::mpsc::Sender;
 
     #[allow(unused_parens)]
-    pub(crate) type OnIncomingCallSendData = (pjsua::pjsua_acc_id);
+    pub(crate) type OnIncomingCallSendData = (pjsua::pjsua_acc_id, pjsua::pjsua_call_id);
 
     pub struct AccountConfigUserData {
         pub(crate) on_incoming_call_tx: Sender<OnIncomingCallSendData>,

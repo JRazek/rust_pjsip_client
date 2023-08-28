@@ -7,7 +7,7 @@ use std::mem::MaybeUninit;
 
 pub unsafe extern "C" fn on_incoming_call(
     acc_id: pjsua::pjsua_acc_id,
-    _call_id: pjsua::pjsua_call_id,
+    call_id: pjsua::pjsua_call_id,
     rx_data: *mut pjsua::pjsip_rx_data,
 ) {
     ffi_assert!(!rx_data.is_null(), "rx_data musn't be null!");
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn on_incoming_call(
     );
 
     let incoming_call_tx = &(*account_user_data).on_incoming_call_tx;
-    let send_data: OnIncomingCallSendData = acc_id;
+    let send_data: OnIncomingCallSendData = (acc_id, call_id);
     incoming_call_tx
         .blocking_send(send_data)
         .expect("channel should not be closed at that point!");

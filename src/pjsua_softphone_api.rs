@@ -1,6 +1,8 @@
 use std::sync::Mutex;
 use std::{marker::PhantomData, ptr};
 
+use super::pjsua_call::PjsuaCall;
+
 use crate::error::{get_error_as_option, get_error_as_result};
 use crate::{pjsua_account_config, pjsua_config, pjsua_types, transport};
 use delegate::delegate;
@@ -119,11 +121,16 @@ impl PjsuaInstanceInitTransportConfigured {
 }
 
 impl PjsuaInstanceStarted {
-    pub async fn next_call(&mut self) -> OnIncomingCallSendData {
-        self.new_calls_rx
+    pub async fn next_call(&mut self) -> PjsuaCall {
+        let (account_id, call_id) = self
+            .new_calls_rx
             .recv()
             .await
-            .expect("This should never happen")
+            .expect("This should never happen");
+
+        let call = PjsuaCall::new(account_id, call_id);
+
+        call
     }
 }
 
