@@ -50,9 +50,12 @@ impl PjsuaIncomingCall {
         }
     }
 
-    pub fn answer_ok(mut self) -> Result<PjsuaCall, PjsuaError> {
+    pub fn answer_ok(
+        mut self,
+        pjsua_sink_media_port: impl PjsuaSinkMediaPort,
+    ) -> Result<PjsuaCall, PjsuaError> {
         self.status = Some(IncomingStatus::Answered);
-        PjsuaCall::new(self)
+        PjsuaCall::new(self, pjsua_sink_media_port)
     }
 
     pub fn reject(mut self) -> Result<(), PjsuaError> {
@@ -78,7 +81,10 @@ pub struct PjsuaCall {
 }
 
 impl PjsuaCall {
-    fn new(incoming_call: PjsuaIncomingCall) -> Result<Self, PjsuaError> {
+    fn new(
+        incoming_call: PjsuaIncomingCall,
+        pjsua_sink_media_port: impl PjsuaSinkMediaPort,
+    ) -> Result<Self, PjsuaError> {
         accept_incoming(incoming_call.call_id)?;
 
         Ok(Self {
@@ -93,3 +99,5 @@ impl PjsuaCall {
         Ok(())
     }
 }
+
+pub trait PjsuaSinkMediaPort {}
