@@ -63,17 +63,21 @@ pub struct PjsuaInstanceInit {
     handle: PjsuaInstanceHandle,
 }
 
-pub struct NotStarted;
-pub struct Started;
-
-pub struct PjsuaInstanceInitTransportConfigured<State = NotStarted> {
+pub struct PjsuaInstanceInitTransportConfigured {
     pjsua_instance_init: PjsuaInstanceInit,
     transport: transport::PjsuaTransport,
-
-    _state: PhantomData<State>,
 }
 
-impl PjsuaInstanceInitTransportConfigured<NotStarted> {
+pub struct PjsuaInstanceStarted {
+    accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
+    new_calls_rx: mpsc::Receiver<OnIncomingCallSendData>,
+    log_config: pjsua_config::LogConfig,
+    pjsua_config: pjsua_config::PjsuaConfig,
+    transport: transport::PjsuaTransport,
+    handle: PjsuaInstanceHandle,
+}
+
+impl PjsuaInstanceInitTransportConfigured {
     delegate! {
         to self.pjsua_instance_init {
             pub async fn add_account(&mut self, account: (pjsua_account_config::AccountConfig, pjsua_account_config::IncomingCallReceiver)) -> ();
@@ -81,22 +85,46 @@ impl PjsuaInstanceInitTransportConfigured<NotStarted> {
     }
 }
 
-impl PjsuaInstanceInitTransportConfigured<NotStarted> {
-    pub fn start(self) -> PjsuaInstanceInitTransportConfigured<Started> {
+impl PjsuaInstanceInitTransportConfigured {
+    pub fn start(self) -> PjsuaInstanceStarted {
         unsafe {
             pjsua::pjsua_start();
         }
 
-        PjsuaInstanceInitTransportConfigured {
-            pjsua_instance_init: self.pjsua_instance_init,
+        let (all_accounts_tx, all_accounts_rx) = mpsc::channel(100);
+
+        self.pjsua_instance_init
+            .account_incoming_calls_rxs
+            .into_iter()
+            .for_each(|mut rx| {
+                let all_accounts_tx = all_accounts_tx.clone();
+                tokio::spawn(async move {
+                    while let Some(data) = rx.recv().await {
+                        if let Err(_) = all_accounts_tx.send(data).await {
+                            break;
+                        }
+                    }
+                });
+            });
+
+        PjsuaInstanceStarted {
+            accounts: self.pjsua_instance_init.accounts,
+            new_calls_rx: all_accounts_rx,
+            log_config: self.pjsua_instance_init.log_config,
+            pjsua_config: self.pjsua_instance_init.pjsua_config,
             transport: self.transport,
-            _state: PhantomData,
+            handle: self.pjsua_instance_init.handle,
         }
     }
 }
 
-impl PjsuaInstanceInitTransportConfigured<Started> {
-    pub async fn next_call(&mut self) {}
+impl PjsuaInstanceStarted {
+    pub async fn next_call(&mut self) -> OnIncomingCallSendData {
+        self.new_calls_rx
+            .recv()
+            .await
+            .expect("This should never happen")
+    }
 }
 
 impl PjsuaInstanceUninit {
@@ -113,8 +141,6 @@ impl PjsuaInstanceUninit {
             PjsuaInstanceInit::from(self, pjsua_config, log_cfg)
         }
     }
-
-    pub async fn accept_call(&self) -> () {}
 }
 
 impl PjsuaInstanceInit {
@@ -147,7 +173,7 @@ impl PjsuaInstanceInit {
     pub fn set_transport(
         self,
         mut transport: transport::PjsuaTransport,
-    ) -> PjsuaInstanceInitTransportConfigured<NotStarted> {
+    ) -> PjsuaInstanceInitTransportConfigured {
         unsafe {
             let mut transport_id: pjsua::pjsua_transport_id = 0;
 
@@ -160,7 +186,6 @@ impl PjsuaInstanceInit {
             let instance_transport_set = PjsuaInstanceInitTransportConfigured {
                 pjsua_instance_init: self,
                 transport,
-                _state: PhantomData,
             };
 
             instance_transport_set

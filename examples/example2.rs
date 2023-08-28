@@ -20,7 +20,11 @@ async fn main() {
 
     instance.add_account(account_config).await;
 
-    let instance = instance.start();
+    let mut instance = instance.start();
 
-    std::thread::sleep(std::time::Duration::from_secs(10));
+    let call = instance.next_call().await;
+
+    println!("call: {:?}", call);
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 }
