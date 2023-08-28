@@ -35,7 +35,9 @@ pub unsafe extern "C" fn on_incoming_call(
 
     let incoming_call_tx = &(*account_user_data).on_incoming_call_tx;
     let send_data: OnIncomingCallSendData = acc_id;
-    incoming_call_tx.send(send_data).unwrap();
+    incoming_call_tx
+        .blocking_send(send_data)
+        .expect("channel should not be closed at that point!");
 }
 
 pub struct PjsuaConfig {

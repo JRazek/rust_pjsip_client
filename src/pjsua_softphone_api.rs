@@ -1,10 +1,14 @@
-use std::mem::ManuallyDrop;
 use std::sync::Mutex;
 use std::{marker::PhantomData, ptr};
 
 use crate::error::{get_error_as_option, get_error_as_result};
 use crate::{pjsua_account_config, pjsua_config, pjsua_types, transport};
 use delegate::delegate;
+use std::sync::Arc;
+
+use tokio::sync::mpsc;
+
+use pjsua_account_config::cb_user_data::OnIncomingCallSendData;
 
 struct PjsuaInstanceHandle {
     _not_send_sync: PhantomData<*const ()>,
@@ -52,7 +56,8 @@ pub struct PjsuaInstanceUninit {
 //The order of fields is important for the drop order.
 //PjsuaInstanceInit MUST be dropped as the last, as it uninitializes pjsua completely.
 pub struct PjsuaInstanceInit {
-    accounts: Vec<pjsua_account_config::AccountConfigAdded>,
+    accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
+    account_incoming_calls_rxs: Vec<mpsc::Receiver<OnIncomingCallSendData>>,
     log_config: pjsua_config::LogConfig,
     pjsua_config: pjsua_config::PjsuaConfig,
     handle: PjsuaInstanceHandle,
@@ -71,7 +76,7 @@ pub struct PjsuaInstanceInitTransportConfigured<State = NotStarted> {
 impl PjsuaInstanceInitTransportConfigured<NotStarted> {
     delegate! {
         to self.pjsua_instance_init {
-            pub fn add_account(&mut self, account: pjsua_account_config::AccountConfig);
+            pub async fn add_account(&mut self, account: (pjsua_account_config::AccountConfig, pjsua_account_config::IncomingCallReceiver)) -> ();
         }
     }
 }
@@ -88,6 +93,10 @@ impl PjsuaInstanceInitTransportConfigured<NotStarted> {
             _state: PhantomData,
         }
     }
+}
+
+impl PjsuaInstanceInitTransportConfigured<Started> {
+    pub async fn next_call(&mut self) {}
 }
 
 impl PjsuaInstanceUninit {
@@ -109,9 +118,30 @@ impl PjsuaInstanceUninit {
 }
 
 impl PjsuaInstanceInit {
-    pub fn add_account(&mut self, account: pjsua_account_config::AccountConfig) {
-        let account_added = account.add(&self);
-        self.accounts.push(account_added);
+    pub async fn add_account(
+        &mut self,
+        account: (
+            pjsua_account_config::AccountConfig,
+            pjsua_account_config::IncomingCallReceiver,
+        ),
+    ) {
+        let (account, mut incoming_call_receiver) = account;
+
+        let account_added = Arc::new(account.add(&self));
+        self.accounts.push(account_added.clone());
+
+        let (tx, rx) = mpsc::channel(1);
+        self.account_incoming_calls_rxs.push(rx);
+
+        tokio::spawn(async move {
+            loop {
+                let account_future = incoming_call_receiver.next_call();
+                let incoming_call = account_future.await;
+                if let Err(_) = tx.send(incoming_call).await {
+                    return;
+                }
+            }
+        });
     }
 
     pub fn set_transport(
@@ -153,6 +183,7 @@ impl PjsuaInstanceInit {
         PjsuaInstanceInit {
             handle: instance.handle,
             accounts: Vec::new(),
+            account_incoming_calls_rxs: Vec::new(),
             pjsua_config,
             log_config,
         }

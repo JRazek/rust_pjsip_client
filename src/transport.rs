@@ -1,4 +1,4 @@
-use super::error::{get_error_as_result as get_pjsua_error, Error as PjsuaError};
+use super::error::{get_error_as_result as get_pjsua_error, PjsuaError as PjsuaError};
 use std::{mem::MaybeUninit, ops::Deref, ops::DerefMut, os::raw::c_int};
 
 #[derive(Debug, Clone)]

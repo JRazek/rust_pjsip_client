@@ -1,12 +1,12 @@
 use std::ffi::CString;
 
 #[derive(Debug, Clone)]
-pub struct Error {
+pub struct PjsuaError {
     pub code: pjsua::pj_status_t,
     pub message: String,
 }
 
-impl From<pjsua::pj_status_t> for Error {
+impl From<pjsua::pj_status_t> for PjsuaError {
     fn from(code: pjsua::pj_status_t) -> Self {
         let message = unsafe {
             let mut buffer = [0u8; 256];
@@ -21,27 +21,27 @@ impl From<pjsua::pj_status_t> for Error {
             str
         };
 
-        Error { code, message }
+        PjsuaError { code, message }
     }
 }
 
-pub fn get_error_as_option(code: pjsua::pj_status_t) -> Option<Error> {
+pub fn get_error_as_option(code: pjsua::pj_status_t) -> Option<PjsuaError> {
     const PJSUA_SUCCESS: i32 = pjsua::pj_constants__PJ_SUCCESS as i32;
     match code {
         PJSUA_SUCCESS => None,
-        _ => Some(Error::from(code)),
+        _ => Some(PjsuaError::from(code)),
     }
 }
 
-pub fn get_error_as_result(code: pjsua::pj_status_t) -> Result<(), Error> {
+pub fn get_error_as_result(code: pjsua::pj_status_t) -> Result<(), PjsuaError> {
     const PJSUA_SUCCESS: i32 = pjsua::pj_constants__PJ_SUCCESS as i32;
     match code {
         PJSUA_SUCCESS => Ok(()),
-        _ => Err(Error::from(code)),
+        _ => Err(PjsuaError::from(code)),
     }
 }
 
-pub fn map_option_to_result<T>(error: Option<Error>) -> Result<(), Error> {
+pub fn map_option_to_result<T>(error: Option<PjsuaError>) -> Result<(), PjsuaError> {
     match error {
         Some(error) => Err(error),
         None => Ok(()),

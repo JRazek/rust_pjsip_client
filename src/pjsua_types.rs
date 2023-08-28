@@ -1,4 +1,4 @@
-use super::error::Error as PjsuaError;
+use super::error::PjsuaError as PjsuaError;
 
 pub struct PjsipRxData {
     rx_data: pjsua::pjsip_rx_data,

@@ -6,11 +6,24 @@ use pjsua::pj_str;
 
 const CSTRING_NEW_FAILED: &str = "CString::new failed!";
 
-use std::sync::mpsc;
+use tokio::sync::mpsc;
 
 pub struct AccountConfigAdded {
     account_id: pjsua::pjsua_acc_id,
     account_config: AccountConfig,
+}
+
+pub struct IncomingCallReceiver {
+    on_incoming_call_rx: mpsc::Receiver<cb_user_data::OnIncomingCallSendData>,
+}
+
+impl IncomingCallReceiver {
+    pub async fn next_call(&mut self) -> cb_user_data::OnIncomingCallSendData {
+        self.on_incoming_call_rx
+            .recv()
+            .await
+            .expect("channel should not be closed at that point!")
+    }
 }
 
 pub struct AccountConfig {
@@ -18,7 +31,6 @@ pub struct AccountConfig {
     cred_info: Vec<CredInfo>,
     id_owned: CString,
     uri_owned: CString,
-    on_incoming_call_rx: mpsc::Receiver<cb_user_data::OnIncomingCallSendData>,
 }
 
 struct CredInfo {
@@ -62,14 +74,14 @@ impl CredInfo {
 }
 
 impl AccountConfig {
-    pub fn new(username: &str, password: &str, domain: &str) -> Self {
+    pub fn new(username: &str, password: &str, domain: &str) -> (Self, IncomingCallReceiver) {
         let (mut account_config, on_incoming_call_rx) = unsafe {
             let mut account_config =
                 Box::new(MaybeUninit::<pjsua::pjsua_acc_config>::zeroed().assume_init());
 
             pjsua::pjsua_acc_config_default(account_config.as_mut());
 
-            let (on_incoming_call_tx, on_incoming_call_rx) = mpsc::channel();
+            let (on_incoming_call_tx, on_incoming_call_rx) = mpsc::channel(10);
 
             let on_incoming_call_tx = Box::new(cb_user_data::AccountConfigUserData {
                 on_incoming_call_tx,
@@ -98,15 +110,18 @@ impl AccountConfig {
         let cred_info0 = CredInfo::new("*", "digest", username, password, domain);
         pjsua_acc_cfg.cred_info[0] = *cred_info0.cred_info;
 
+        let on_incoming_call_rx = IncomingCallReceiver {
+            on_incoming_call_rx,
+        };
+
         let account_config = Self {
             account_config,
             id_owned: id,
             uri_owned: uri,
             cred_info: vec![cred_info0],
-            on_incoming_call_rx,
         };
 
-        account_config
+        (account_config, on_incoming_call_rx)
     }
 
     pub fn add(mut self, _: &pjsua_softphone_api::PjsuaInstanceInit) -> AccountConfigAdded {
@@ -172,7 +187,7 @@ impl AsMut<pjsua::pjsua_acc_config> for AccountConfig {
 }
 
 pub(crate) mod cb_user_data {
-    use std::sync::mpsc::Sender;
+    use tokio::sync::mpsc::Sender;
 
     #[allow(unused_parens)]
     pub(crate) type OnIncomingCallSendData = (pjsua::pjsua_acc_id);
