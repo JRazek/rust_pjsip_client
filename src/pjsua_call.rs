@@ -2,6 +2,8 @@ use super::error::{get_error_as_result, PjsuaError};
 use super::pjmedia_bridge::PjmediaBridge;
 use std::ptr;
 
+use super::tokio_utils::spawn_blocking_pjsua;
+
 fn accept_incoming(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
     unsafe {
         let status = pjsua::pjsua_call_answer(call_id, 200, ptr::null(), ptr::null());
@@ -64,19 +66,24 @@ impl PjsuaIncomingCall {
         }
     }
 
-    pub fn answer_ok<'a, Sink: PjsuaSinkMediaPort<'a>>(
+    pub async fn answer_ok<'a, Sink: PjsuaSinkMediaPort<'a>>(
         mut self,
         sink: Sink,
     ) -> Result<PjsuaCall<'a, Sink>, PjsuaError> {
         self.status = Some(IncomingStatus::Answered);
-        PjsuaCall::new(self, sink)
+        PjsuaCall::new(self, sink).await
     }
 
-    pub fn reject(mut self) -> Result<(), PjsuaError> {
+    pub async fn reject(mut self) -> Result<(), PjsuaError> {
         self.status = Some(IncomingStatus::Rejected);
-        reject_incoming(self.call_id)?;
 
-        Ok(())
+        spawn_blocking_pjsua(move || {
+            reject_incoming(self.call_id)?;
+
+            Ok::<(), PjsuaError>(())
+        })
+        .await
+        .unwrap()
     }
 }
 
@@ -97,7 +104,10 @@ pub struct PjsuaCall<'a, Sink: PjsuaSinkMediaPort<'a>> {
 }
 
 impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
-    fn new(incoming_call: PjsuaIncomingCall, sink: Sink) -> Result<Self, PjsuaError> {
+    async fn new(
+        incoming_call: PjsuaIncomingCall,
+        sink: Sink,
+    ) -> Result<PjsuaCall<'a, Sink>, PjsuaError> {
         let (state_changed_tx, mut state_changed_rx) = tokio::sync::mpsc::channel(3);
         let user_data = Box::new(cb_user_data::StateChangedUserData {
             on_state_changed_tx: state_changed_tx,
@@ -111,7 +121,23 @@ impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
             );
             get_error_as_result(status)?;
         }
-        accept_incoming(incoming_call.call_id)?;
+
+        spawn_blocking_pjsua(move || {
+            accept_incoming(incoming_call.call_id)?;
+
+            Ok::<(), PjsuaError>(())
+        })
+        .await
+        .unwrap()?;
+
+        let tmp_rx_task = tokio::spawn(async move {
+            while let Some((call_id, state)) = state_changed_rx.recv().await {
+                eprintln!("Call state changed: {:?}", state);
+                if let State::PjsipInvStateDisconnected = state {
+                    eprintln!("Call {} disconnected", call_id);
+                }
+            }
+        });
 
         let capture_media = Ok(Self {
             _account_id: incoming_call.account_id,
@@ -123,10 +149,14 @@ impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
         capture_media
     }
 
-    pub fn hangup(self) -> Result<(), PjsuaError> {
-        hangup_call(self.call_id)?;
+    pub async fn hangup(self) -> Result<(), PjsuaError> {
+        spawn_blocking_pjsua(move || {
+            hangup_call(self.call_id)?;
 
-        Ok(())
+            Ok::<(), PjsuaError>(())
+        })
+        .await
+        .unwrap()
     }
 }
 

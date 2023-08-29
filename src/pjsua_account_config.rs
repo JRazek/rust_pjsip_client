@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::MaybeUninit};
 
-use crate::{ffi_assert, pjsua_softphone_api};
+use crate::{ffi_assert, pjsua_call, pjsua_softphone_api};
 
 use pjsua::pj_str;
 
@@ -8,9 +8,16 @@ const CSTRING_NEW_FAILED: &str = "CString::new failed!";
 
 use tokio::sync::mpsc;
 
-pub struct AccountConfigAdded {
+use self::cb_user_data::OnIncomingCallSendData;
+
+pub struct AccountConfigAdded<'a> {
     account_id: pjsua::pjsua_acc_id,
-    account_config: AccountConfig,
+    account_config: Box<pjsua::pjsua_acc_config>,
+    on_incoming_call_rx: IncomingCallReceiver,
+    _cred_info: Vec<CredInfo>,
+    _id_owned: CString,
+    _uri_owned: CString,
+    _pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
 }
 
 pub struct IncomingCallReceiver {
@@ -28,6 +35,7 @@ impl IncomingCallReceiver {
 
 pub struct AccountConfig {
     account_config: Box<pjsua::pjsua_acc_config>,
+    on_incoming_call_rx: IncomingCallReceiver,
     _cred_info: Vec<CredInfo>,
     _id_owned: CString,
     _uri_owned: CString,
@@ -74,7 +82,7 @@ impl CredInfo {
 }
 
 impl AccountConfig {
-    pub fn new(username: &str, password: &str, domain: &str) -> (Self, IncomingCallReceiver) {
+    pub fn new(username: &str, password: &str, domain: &str) -> Self {
         let (mut account_config, on_incoming_call_rx) = unsafe {
             let mut account_config =
                 Box::new(MaybeUninit::<pjsua::pjsua_acc_config>::zeroed().assume_init());
@@ -116,15 +124,19 @@ impl AccountConfig {
 
         let account_config = Self {
             account_config,
+            on_incoming_call_rx,
             _id_owned: id,
             _uri_owned: uri,
             _cred_info: vec![cred_info0],
         };
 
-        (account_config, on_incoming_call_rx)
+        account_config
     }
 
-    pub fn add(mut self, _: &pjsua_softphone_api::PjsuaInstanceInit) -> AccountConfigAdded {
+    pub(crate) fn add_to_instance_init<'a>(
+        mut self,
+        pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
+    ) -> AccountConfigAdded<'a> {
         use crate::error::get_error_as_result;
 
         let account_raw = self.as_mut();
@@ -148,13 +160,25 @@ impl AccountConfig {
         eprintln!("added account. account_id: {}", account_id);
 
         AccountConfigAdded {
-            account_config: self,
             account_id,
+            account_config: self.account_config,
+            on_incoming_call_rx: self.on_incoming_call_rx,
+            _cred_info: self._cred_info,
+            _id_owned: self._id_owned,
+            _uri_owned: self._uri_owned,
+            _pjsua_instance_started: pjsua_instance_started,
         }
     }
 }
 
-impl Drop for AccountConfigAdded {
+impl<'a> AccountConfigAdded<'a> {
+    pub async fn next_call(&mut self) -> pjsua_call::PjsuaIncomingCall {
+        let (account_id, call_id) = self.on_incoming_call_rx.next_call().await;
+        pjsua_call::PjsuaIncomingCall::new(account_id, call_id)
+    }
+}
+
+impl<'a> Drop for AccountConfigAdded<'a> {
     fn drop(&mut self) {
         unsafe {
             let on_incoming_call_tx = pjsua::pjsua_acc_get_user_data(self.account_id)
@@ -174,9 +198,9 @@ impl Drop for AccountConfigAdded {
     }
 }
 
-impl AsMut<pjsua::pjsua_acc_config> for AccountConfigAdded {
+impl<'a> AsMut<pjsua::pjsua_acc_config> for AccountConfigAdded<'a> {
     fn as_mut(&mut self) -> &mut pjsua::pjsua_acc_config {
-        &mut self.account_config.account_config
+        &mut self.account_config
     }
 }
 

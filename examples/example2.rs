@@ -17,15 +17,15 @@ async fn main() {
 
     let transport = PjsuaTransport::new(None);
 
-    let mut instance = instance.set_transport(transport);
+    let instance = instance.set_transport(transport);
 
     let account_config = AccountConfig::new("7002", "7002", "127.0.0.1:5000");
 
-    instance.add_account(account_config).await;
+    let instance = instance.start();
 
-    let mut instance = instance.start();
+    let mut account_added = instance.add_account(account_config).await;
 
-    let incoming_call = instance.next_call().await;
+    let incoming_call = account_added.next_call().await;
 
     println!("call: {:?}", incoming_call);
 
@@ -43,11 +43,14 @@ async fn main() {
 
     let call = incoming_call
         .answer_ok(sink_buffer_media_port)
+        .await
         .expect("answer failed!");
+
+    println!("call: {:?}", call);
 
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     println!("hanging up...");
 
-    call.hangup().expect("hangup failed!");
+    call.hangup().await.expect("hangup failed!");
 }

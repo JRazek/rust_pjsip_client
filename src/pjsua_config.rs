@@ -1,4 +1,5 @@
 use crate::{
+    error::ffi_assert_res,
     ffi_assert,
     pjsua_account_config::cb_user_data::{AccountConfigUserData, OnIncomingCallSendData},
     pjsua_call::cb_user_data::StateChangedUserData,
@@ -11,6 +12,7 @@ pub unsafe extern "C" fn on_incoming_call(
     call_id: pjsua::pjsua_call_id,
     rx_data: *mut pjsua::pjsip_rx_data,
 ) {
+    eprintln!("on_incoming_call callback...");
     ffi_assert!(!rx_data.is_null(), "rx_data musn't be null!");
 
     let rx_data = rx_data.as_mut().unwrap();
@@ -39,6 +41,8 @@ pub unsafe extern "C" fn on_incoming_call(
     incoming_call_tx
         .blocking_send(send_data)
         .expect("channel should not be closed at that point!");
+    
+    eprintln!("on_incoming_call callback returned");
 }
 
 pub unsafe extern "C" fn on_call_state(
@@ -60,13 +64,13 @@ pub unsafe extern "C" fn on_call_state(
 
     let state = info.state.try_into();
 
-    ffi_assert!(state.is_ok(), "pjsua::pjsua_call_info::state is not valid!");
+    let state = ffi_assert_res(state);
 
     let res = (*state_changed_user_data)
         .on_state_changed_tx
-        .blocking_send((call_id, state.unwrap()));
+        .blocking_send((call_id, state));
 
-    ffi_assert!(res.is_ok(), "on_state_changed_tx channel is closed!");
+    ffi_assert_res(res);
 }
 
 pub struct PjsuaConfig {

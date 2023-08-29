@@ -57,8 +57,8 @@ pub struct PjsuaInstanceUninit {
 //The order of fields is important for the drop order.
 //PjsuaInstanceInit MUST be dropped as the last, as it uninitializes pjsua completely.
 pub struct PjsuaInstanceInit {
-    accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
-    account_incoming_calls_rxs: Vec<mpsc::Receiver<OnIncomingCallSendData>>,
+    //    accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
+    //    account_incoming_calls_rxs: Vec<mpsc::Receiver<OnIncomingCallSendData>>,
     log_config: pjsua_config::LogConfig,
     pjsua_config: pjsua_config::PjsuaConfig,
     handle: PjsuaInstanceHandle,
@@ -70,20 +70,12 @@ pub struct PjsuaInstanceInitTransportConfigured {
 }
 
 pub struct PjsuaInstanceStarted {
-    _accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
-    new_calls_rx: mpsc::Receiver<OnIncomingCallSendData>,
+    //    _accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded<'a>>>,
+    //    new_calls_rx: mpsc::Receiver<OnIncomingCallSendData>,
     _log_config: pjsua_config::LogConfig,
     _pjsua_config: pjsua_config::PjsuaConfig,
     _transport: transport::PjsuaTransport,
     _handle: PjsuaInstanceHandle,
-}
-
-impl PjsuaInstanceInitTransportConfigured {
-    delegate! {
-        to self.pjsua_instance_init {
-            pub async fn add_account(&mut self, account: (pjsua_account_config::AccountConfig, pjsua_account_config::IncomingCallReceiver)) -> ();
-        }
-    }
 }
 
 impl PjsuaInstanceInitTransportConfigured {
@@ -92,44 +84,12 @@ impl PjsuaInstanceInitTransportConfigured {
             pjsua::pjsua_start();
         }
 
-        let (all_accounts_tx, all_accounts_rx) = mpsc::channel(100);
-
-        self.pjsua_instance_init
-            .account_incoming_calls_rxs
-            .into_iter()
-            .for_each(|mut rx| {
-                let all_accounts_tx = all_accounts_tx.clone();
-                tokio::spawn(async move {
-                    while let Some(data) = rx.recv().await {
-                        if let Err(_) = all_accounts_tx.send(data).await {
-                            break;
-                        }
-                    }
-                });
-            });
-
         PjsuaInstanceStarted {
-            _accounts: self.pjsua_instance_init.accounts,
-            new_calls_rx: all_accounts_rx,
             _log_config: self.pjsua_instance_init.log_config,
             _pjsua_config: self.pjsua_instance_init.pjsua_config,
             _transport: self.transport,
             _handle: self.pjsua_instance_init.handle,
         }
-    }
-}
-
-impl PjsuaInstanceStarted {
-    pub async fn next_call(&mut self) -> PjsuaIncomingCall {
-        let (account_id, call_id) = self
-            .new_calls_rx
-            .recv()
-            .await
-            .expect("This should never happen");
-
-        let call = PjsuaIncomingCall::new(account_id, call_id);
-
-        call
     }
 }
 
@@ -150,32 +110,6 @@ impl PjsuaInstanceUninit {
 }
 
 impl PjsuaInstanceInit {
-    pub async fn add_account(
-        &mut self,
-        account: (
-            pjsua_account_config::AccountConfig,
-            pjsua_account_config::IncomingCallReceiver,
-        ),
-    ) {
-        let (account, mut incoming_call_receiver) = account;
-
-        let account_added = Arc::new(account.add(&self));
-        self.accounts.push(account_added.clone());
-
-        let (tx, rx) = mpsc::channel(1);
-        self.account_incoming_calls_rxs.push(rx);
-
-        tokio::spawn(async move {
-            loop {
-                let account_future = incoming_call_receiver.next_call();
-                let incoming_call = account_future.await;
-                if let Err(_) = tx.send(incoming_call).await {
-                    return;
-                }
-            }
-        });
-    }
-
     pub fn set_transport(
         self,
         mut transport: transport::PjsuaTransport,
@@ -199,6 +133,19 @@ impl PjsuaInstanceInit {
     }
 }
 
+impl PjsuaInstanceStarted {
+    pub async fn add_account(
+        &self,
+        account: pjsua_account_config::AccountConfig,
+    ) -> pjsua_account_config::AccountConfigAdded {
+        let account_added = account.add_to_instance_init(&self);
+
+        //note, this does not use FFI
+
+        account_added
+    }
+}
+
 impl From<PjsuaInstanceHandle> for PjsuaInstanceUninit {
     fn from(handle: PjsuaInstanceHandle) -> Self {
         PjsuaInstanceUninit { handle }
@@ -213,8 +160,6 @@ impl PjsuaInstanceInit {
     ) -> Self {
         PjsuaInstanceInit {
             handle: instance.handle,
-            accounts: Vec::new(),
-            account_incoming_calls_rxs: Vec::new(),
             pjsua_config,
             log_config,
         }

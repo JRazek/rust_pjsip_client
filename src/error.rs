@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::fmt::Debug;
 
 #[derive(Debug, Clone)]
 pub struct PjsuaError {
@@ -74,7 +74,15 @@ macro_rules! ffi_assert {
             let backtrace = std::backtrace::Backtrace::capture();
             eprintln!("Assertion failed: {}", stringify!($cond));
             eprintln!("{:?}", backtrace);
+            eprintln!($($arg)*);
+
             std::process::exit(1);
         }
     };
+}
+
+pub fn ffi_assert_res<T: Debug, E: Debug>(res: Result<T, E>) -> T {
+    ffi_assert!(res.is_ok(), "{:?}", res);
+
+    res.unwrap()
 }
