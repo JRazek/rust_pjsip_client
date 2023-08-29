@@ -195,10 +195,4 @@ pub(crate) mod cb_user_data {
     pub struct AccountConfigUserData {
         pub(crate) on_incoming_call_tx: Sender<OnIncomingCallSendData>,
     }
-
-    impl Drop for AccountConfigUserData {
-        fn drop(&mut self) {
-            eprintln!("dropping AccountConfigUserData...");
-        }
-    }
 }

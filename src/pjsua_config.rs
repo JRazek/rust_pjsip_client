@@ -1,9 +1,10 @@
 use crate::{
     ffi_assert,
     pjsua_account_config::cb_user_data::{AccountConfigUserData, OnIncomingCallSendData},
+    pjsua_call::cb_user_data::StateChangedUserData,
 };
 
-use std::mem::MaybeUninit;
+use std::{ffi, mem::MaybeUninit};
 
 pub unsafe extern "C" fn on_incoming_call(
     acc_id: pjsua::pjsua_acc_id,
@@ -40,6 +41,34 @@ pub unsafe extern "C" fn on_incoming_call(
         .expect("channel should not be closed at that point!");
 }
 
+pub unsafe extern "C" fn on_call_state(
+    call_id: pjsua::pjsua_call_id,
+    _pjsip_event: *mut pjsua::pjsip_event,
+) {
+    //    ffi_assert!(!pjsip_event.is_null(), "pjsip_event musn't be null!");
+
+    let state_changed_user_data =
+        pjsua::pjsua_call_get_user_data(call_id) as *mut StateChangedUserData;
+
+    ffi_assert!(
+        !state_changed_user_data.is_null(),
+        "user data musn't be null!"
+    );
+
+    let mut info = MaybeUninit::<pjsua::pjsua_call_info>::zeroed().assume_init();
+    pjsua::pjsua_call_get_info(call_id, &mut info);
+
+    let state = info.state.try_into();
+
+    ffi_assert!(state.is_ok(), "pjsua::pjsua_call_info::state is not valid!");
+
+    let res = (*state_changed_user_data)
+        .on_state_changed_tx
+        .blocking_send((call_id, state.unwrap()));
+
+    ffi_assert!(res.is_ok(), "on_state_changed_tx channel is closed!");
+}
+
 pub struct PjsuaConfig {
     pjsua_config: Box<pjsua::pjsua_config>,
 }
@@ -53,6 +82,7 @@ impl PjsuaConfig {
             pjsua::pjsua_config_default(pjsua_config.as_mut());
 
             pjsua_config.cb.on_incoming_call = Some(on_incoming_call);
+            pjsua_config.cb.on_call_state = Some(on_call_state);
 
             PjsuaConfig { pjsua_config }
         }
@@ -69,6 +99,8 @@ impl Default for LogConfig {
             let mut log_cfg =
                 Box::new(MaybeUninit::<pjsua::pjsua_logging_config>::zeroed().assume_init());
             pjsua::pjsua_logging_config_default(log_cfg.as_mut());
+
+            log_cfg.console_level = 1;
 
             Self {
                 logging_cfg: log_cfg,

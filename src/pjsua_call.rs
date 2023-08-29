@@ -98,6 +98,19 @@ pub struct PjsuaCall<'a, Sink: PjsuaSinkMediaPort<'a>> {
 
 impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
     fn new(incoming_call: PjsuaIncomingCall, sink: Sink) -> Result<Self, PjsuaError> {
+        let (state_changed_tx, mut state_changed_rx) = tokio::sync::mpsc::channel(3);
+        let user_data = Box::new(cb_user_data::StateChangedUserData {
+            on_state_changed_tx: state_changed_tx,
+        });
+
+        unsafe {
+            eprintln!("Setting user data...");
+            let status = pjsua::pjsua_call_set_user_data(
+                incoming_call.call_id,
+                Box::into_raw(user_data) as *mut std::ffi::c_void,
+            );
+            get_error_as_result(status)?;
+        }
         accept_incoming(incoming_call.call_id)?;
 
         let capture_media = Ok(Self {
@@ -119,4 +132,43 @@ impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
 
 pub trait PjsuaSinkMediaPort<'a> {
     fn as_pjmedia_port(&mut self) -> *mut pjsua::pjmedia_port;
+}
+
+pub(crate) mod cb_user_data {
+    use super::State;
+    use tokio::sync::mpsc::Sender;
+
+    #[allow(unused_parens)]
+    pub(crate) type OnStateChangedSendData = (pjsua::pjsua_call_id, State);
+
+    pub struct StateChangedUserData {
+        pub(crate) on_state_changed_tx: Sender<OnStateChangedSendData>,
+    }
+}
+
+#[derive(Debug)]
+pub enum State {
+    PjsipInvStateNull,
+    PjsipInvStateCalling,
+    PjsipInvStateIncoming,
+    PjsipInvStateEarly,
+    PjsipInvStateConnecting,
+    PjsipInvStateConfirmed,
+    PjsipInvStateDisconnected,
+}
+
+impl TryFrom<u32> for State {
+    type Error = ();
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(State::PjsipInvStateNull),
+            1 => Ok(State::PjsipInvStateCalling),
+            2 => Ok(State::PjsipInvStateIncoming),
+            3 => Ok(State::PjsipInvStateEarly),
+            4 => Ok(State::PjsipInvStateConnecting),
+            5 => Ok(State::PjsipInvStateConfirmed),
+            6 => Ok(State::PjsipInvStateDisconnected),
+            _ => Err(()),
+        }
+    }
 }
