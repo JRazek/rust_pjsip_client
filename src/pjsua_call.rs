@@ -169,6 +169,18 @@ impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
 
         Ok(state)
     }
+
+    pub async fn await_hangup(&mut self) -> Result<(), PjsuaError> {
+        loop {
+            let state = self.wait_for_state_change().await?;
+
+            if let State::PjsipInvStateDisconnected = state {
+                break;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<'a, Sink: PjsuaSinkMediaPort<'a>> Drop for PjsuaCall<'a, Sink> {

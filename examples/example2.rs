@@ -52,8 +52,8 @@ async fn main() {
             println!("hanging up...");
             let _ = call.hangup().await;
         },
-        Ok(call_state) = call.wait_for_state_change() => {
-            println!("call state changed to {:?}", call_state);
+        Ok(_) = call.await_hangup() => {
+            println!("remote disconnected.");
         },
     }
 }
