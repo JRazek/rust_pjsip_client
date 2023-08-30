@@ -39,9 +39,9 @@ pub unsafe extern "C" fn on_incoming_call(
     let incoming_call_tx = &(*account_user_data).on_incoming_call_tx;
     let send_data: OnIncomingCallSendData = (acc_id, call_id);
     incoming_call_tx
-        .blocking_send(send_data)
+        .try_send(send_data)
         .expect("channel should not be closed at that point!");
-    
+
     eprintln!("on_incoming_call callback returned");
 }
 
@@ -68,7 +68,7 @@ pub unsafe extern "C" fn on_call_state(
 
     let res = (*state_changed_user_data)
         .on_state_changed_tx
-        .blocking_send((call_id, state));
+        .try_send((call_id, state));
 
     ffi_assert_res(res);
 }

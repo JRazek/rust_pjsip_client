@@ -174,7 +174,7 @@ impl AccountConfig {
 impl<'a> AccountConfigAdded<'a> {
     pub async fn next_call(&mut self) -> pjsua_call::PjsuaIncomingCall {
         let (account_id, call_id) = self.on_incoming_call_rx.next_call().await;
-        pjsua_call::PjsuaIncomingCall::new(account_id, call_id)
+        pjsua_call::PjsuaIncomingCall::new(account_id, call_id, self._pjsua_instance_started)
     }
 }
 

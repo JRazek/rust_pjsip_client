@@ -6,6 +6,8 @@ use pjsip_client::transport::PjsuaTransport;
 use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 use pjsip_client::pjsua_sink_buffer_media_port::PjsuaSinkBufferMediaPort;
 
+use pjsip_client::pjsua_call::State as CallState;
+
 #[tokio::main]
 async fn main() {
     let instance =
@@ -27,8 +29,6 @@ async fn main() {
 
     let incoming_call = account_added.next_call().await;
 
-    println!("call: {:?}", incoming_call);
-
     println!("answering...");
 
     let mut memory_pool = PjsuaMemoryPool::new(10000, 10000).expect("PjsuaMemoryPool::new failed!");
@@ -41,16 +41,19 @@ async fn main() {
 
     println!("sink_buffer_media_port: {:?}", sink_buffer_media_port);
 
-    let call = incoming_call
+    let mut call = incoming_call
         .answer_ok(sink_buffer_media_port)
         .await
         .expect("answer failed!");
 
-    println!("call: {:?}", call);
-
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
-    println!("hanging up...");
-
-    call.hangup().await.expect("hangup failed!");
+    tokio::select! {
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+            println!("timed out!");
+            println!("hanging up...");
+            let _ = call.hangup().await;
+        },
+        Ok(call_state) = call.wait_for_state_change() => {
+            println!("call state changed to {:?}", call_state);
+        },
+    }
 }
