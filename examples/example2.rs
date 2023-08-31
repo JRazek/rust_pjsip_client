@@ -41,10 +41,7 @@ async fn main() {
 
     println!("sink_buffer_media_port: {:?}", sink_buffer_media_port);
 
-    let mut call = incoming_call
-        .answer_ok(sink_buffer_media_port)
-        .await
-        .expect("answer failed!");
+    let mut call = incoming_call.answer_ok().await.expect("answer failed!");
 
     tokio::select! {
         _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {

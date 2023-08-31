@@ -5,18 +5,60 @@ use super::error::{get_error_as_option, get_error_as_result};
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 use std::ptr;
 
-pub struct PjmediaPort<'a> {
-    pjmedia_port: *mut pjsua::pjmedia_port,
+struct PjmediaSlot {
+    _pjmedia_port: *mut pjsua::pjmedia_port,
     slot: u32,
-    pjmedia_bridge: &'a PjmediaBridge<'a>,
 }
 
-impl<'a> PjmediaPort<'a> {
+struct PjmediaSlotLink {
+    pjmedia_slot_sink: PjmediaSlot,
+    pjmedia_slot_stream: PjmediaSlot,
+    bridge_handle: *mut pjsua::pjmedia_conf,
+}
+
+impl PjmediaSlotLink {
     fn new(
+        pjmedia_slot_sink: PjmediaSlot,
+        pjmedia_slot_stream: PjmediaSlot,
+        pjmedia_bridge: &PjmediaBridge,
+    ) -> Result<PjmediaSlotLink, PjsuaError> {
+        unsafe {
+            let status = pjsua::pjmedia_conf_connect_port(
+                pjmedia_bridge.pjmedia_bridge,
+                pjmedia_slot_sink.slot,
+                pjmedia_slot_stream.slot,
+                0,
+            );
+
+            get_error_as_result(status)?;
+        }
+
+        Ok(Self {
+            pjmedia_slot_sink,
+            pjmedia_slot_stream,
+            bridge_handle: pjmedia_bridge.pjmedia_bridge,
+        })
+    }
+}
+
+impl Drop for PjmediaSlotLink {
+    fn drop(&mut self) {
+        unsafe {
+            pjsua::pjmedia_conf_disconnect_port(
+                self.bridge_handle,
+                self.pjmedia_slot_sink.slot,
+                self.pjmedia_slot_stream.slot,
+            );
+        }
+    }
+}
+
+impl PjmediaSlot {
+    fn new<'a>(
         pjmedia_bridge: &'a PjmediaBridge<'a>,
-        pjsua_pool: &'a mut PjsuaMemoryPool,
+        pjsua_pool: &'a PjsuaMemoryPool,
         port: *mut pjsua::pjmedia_port,
-    ) -> Option<PjmediaPort<'a>> {
+    ) -> Result<PjmediaSlot, PjsuaError> {
         let mut slot = 0;
 
         let status = unsafe {
@@ -29,17 +71,16 @@ impl<'a> PjmediaPort<'a> {
             )
         };
 
-        get_error_as_option(status)?;
+        get_error_as_result(status)?;
 
-        Some(PjmediaPort {
-            pjmedia_port: port,
+        Ok(PjmediaSlot {
+            _pjmedia_port: port,
             slot,
-            pjmedia_bridge,
         })
     }
 }
 
-impl<'a> Drop for PjmediaPort<'a> {
+impl Drop for PjmediaSlot {
     fn drop(&mut self) {
         todo!()
     }
@@ -49,6 +90,8 @@ pub struct PjmediaBridge<'a> {
     //stands for conference bridge
     pjmedia_bridge: *mut pjsua::pjmedia_conf,
     pjsua_pool: &'a mut PjsuaMemoryPool,
+
+    connections: Vec<PjmediaSlotLink>,
 }
 
 impl<'a> PjmediaBridge<'a> {
@@ -93,6 +136,7 @@ impl<'a> PjmediaBridge<'a> {
         Some(PjmediaBridge {
             pjmedia_bridge,
             pjsua_pool,
+            connections: Vec::new(),
         })
     }
 
@@ -101,34 +145,12 @@ impl<'a> PjmediaBridge<'a> {
         mut sink: impl pjsua_call::PjsuaSinkMediaPort,
         mut stream: impl pjsua_call::PjsuaStreamMediaPort,
     ) -> Result<(), PjsuaError> {
-        let sink_slot = PjmediaPort::new(self, self.pjsua_pool, sink.as_pjmedia_port());
+        let sink_slot = PjmediaSlot::new(self, self.pjsua_pool, sink)?;
+        let stream_slot = PjmediaSlot::new(self, self.pjsua_pool, stream)?;
 
-//        let mut sink_slot_id = 0;
-//        unsafe {
-//            let status = pjsua::pjmedia_conf_add_port(
-//                self.pjmedia_bridge,
-//                self.pjsua_pool.as_mut(),
-//                sink.as_pjmedia_port(),
-//                ptr::null_mut(),
-//                &mut sink_slot_id,
-//            );
-//
-//            get_error_as_result(status)?;
-//        }
-//
-//        let mut stream_slot_id = 0;
-//
-//        unsafe {
-//            let status = pjsua::pjmedia_conf_add_port(
-//                self.pjmedia_bridge,
-//                self.pjsua_pool.as_mut(),
-//                stream.as_pjmedia_port(),
-//                ptr::null_mut(),
-//                &mut stream_slot_id,
-//            );
-//
-//            get_error_as_result(status)?;
-//        }
+        let link = PjmediaSlotLink::new(sink_slot, stream_slot, self)?;
+
+        self.connections.push(link);
 
         Ok(())
     }
@@ -137,6 +159,7 @@ impl<'a> PjmediaBridge<'a> {
 impl<'a> Drop for PjmediaBridge<'a> {
     fn drop(&mut self) {
         unsafe {
+            self.connections.clear();
             pjsua::pjmedia_conf_destroy(self.pjmedia_bridge);
         }
     }

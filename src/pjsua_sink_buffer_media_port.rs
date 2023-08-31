@@ -88,11 +88,3 @@ impl<'a> Drop for PjsuaSinkBufferMediaPort<'a> {
         let _ = unsafe { Box::from_raw(self.buffer_ptr) };
     }
 }
-
-use super::pjsua_call::PjsuaSinkMediaPort;
-
-impl<'a> PjsuaSinkMediaPort for PjsuaSinkBufferMediaPort<'a> {
-    fn as_pjmedia_port(&mut self) -> *mut pjsua::pjmedia_port {
-        self.media_port as *mut _
-    }
-}

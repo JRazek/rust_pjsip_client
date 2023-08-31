@@ -19,7 +19,7 @@ impl PjsuaMemoryPool {
         }
     }
 
-    pub fn as_mut(&mut self) -> *mut pjsua::pj_pool_t {
+    pub fn as_mut(&self) -> *mut pjsua::pj_pool_t {
         self.pjsua_pool
     }
 }
