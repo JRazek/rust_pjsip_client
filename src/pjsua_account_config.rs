@@ -9,6 +9,7 @@ const CSTRING_NEW_FAILED: &str = "CString::new failed!";
 use tokio::sync::mpsc;
 
 use self::cb_user_data::OnIncomingCallSendData;
+use super::error::PjsuaError;
 
 pub struct AccountConfigAdded<'a> {
     account_id: pjsua::pjsua_acc_id,
@@ -136,7 +137,7 @@ impl AccountConfig {
     pub(crate) fn add_to_instance_init<'a>(
         mut self,
         pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
-    ) -> AccountConfigAdded<'a> {
+    ) -> Result<AccountConfigAdded<'a>, PjsuaError> {
         use crate::error::get_error_as_result;
 
         let account_raw = self.as_mut();
@@ -144,13 +145,11 @@ impl AccountConfig {
         let mut account_id: pjsua::pjsua_acc_id = 2;
 
         unsafe {
-            if let Err(status) = get_error_as_result(pjsua::pjsua_acc_add(
+            get_error_as_result(pjsua::pjsua_acc_add(
                 account_raw,
                 pjsua::pj_constants__PJ_TRUE as i32,
                 &mut account_id,
-            )) {
-                panic!("pjsua_acc_add failed with status: {}", status.message);
-            }
+            ))?;
 
             let user_data = pjsua::pjsua_acc_get_user_data(account_id);
 
@@ -159,7 +158,7 @@ impl AccountConfig {
 
         eprintln!("added account. account_id: {}", account_id);
 
-        AccountConfigAdded {
+        let config_added = AccountConfigAdded {
             account_id,
             account_config: self.account_config,
             on_incoming_call_rx: self.on_incoming_call_rx,
@@ -167,7 +166,9 @@ impl AccountConfig {
             _id_owned: self._id_owned,
             _uri_owned: self._uri_owned,
             _pjsua_instance_started: pjsua_instance_started,
-        }
+        };
+
+        Ok(config_added)
     }
 }
 

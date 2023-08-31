@@ -5,7 +5,7 @@ use crate::{
     pjsua_call::cb_user_data::StateChangedUserData,
 };
 
-use std::{ffi, mem::MaybeUninit};
+use std::mem::MaybeUninit;
 
 pub unsafe extern "C" fn on_incoming_call(
     acc_id: pjsua::pjsua_acc_id,
@@ -122,5 +122,35 @@ impl AsMut<pjsua::pjsua_logging_config> for LogConfig {
 impl AsMut<pjsua::pjsua_config> for PjsuaConfig {
     fn as_mut(&mut self) -> &mut pjsua::pjsua_config {
         &mut self.pjsua_config
+    }
+}
+
+pub struct MediaConfig {
+    media_cfg: Box<pjsua::pjsua_media_config>,
+}
+
+impl Default for MediaConfig {
+    fn default() -> Self {
+        unsafe {
+            let mut media_cfg =
+                Box::new(MaybeUninit::<pjsua::pjsua_media_config>::zeroed().assume_init());
+
+            pjsua::pjsua_media_config_default(media_cfg.as_mut());
+
+            media_cfg.clock_rate = 8000;
+            media_cfg.snd_clock_rate = 8000;
+            media_cfg.ec_tail_len = 0;
+            media_cfg.no_vad = 1;
+
+            media_cfg.snd_auto_close_time = 0;
+
+            Self { media_cfg }
+        }
+    }
+}
+
+impl AsMut<pjsua::pjsua_media_config> for MediaConfig {
+    fn as_mut(&mut self) -> &mut pjsua::pjsua_media_config {
+        self.media_cfg.as_mut()
     }
 }

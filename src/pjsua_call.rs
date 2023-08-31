@@ -5,6 +5,14 @@ use std::ptr;
 
 use super::tokio_utils::spawn_blocking_pjsua;
 
+use std::mem::MaybeUninit;
+
+use super::pjsua_memory_pool::PjsuaMemoryPool;
+
+use super::pjsua_sink_buffer_media_port::{
+    PjsuaSinkBufferMediaPort, PjsuaSinkBufferMediaPortConnected,
+};
+
 fn accept_incoming(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
     unsafe {
         let status = pjsua::pjsua_call_answer(call_id, 200, ptr::null(), ptr::null());
@@ -32,6 +40,18 @@ fn hangup_call(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
     Ok(())
 }
 
+fn get_call_info(call_id: pjsua::pjsua_call_id) -> Result<pjsua::pjsua_call_info, PjsuaError> {
+    let call_info = unsafe {
+        let mut call_info = MaybeUninit::<pjsua::pjsua_call_info>::zeroed().assume_init();
+        let status = pjsua::pjsua_call_get_info(call_id, &mut call_info);
+        get_error_as_result(status)?;
+
+        call_info
+    };
+
+    Ok(call_info)
+}
+
 //fn connect_media_ports(lhs: pjsua::pjmedia_port, rhs:
 
 #[derive(Debug)]
@@ -50,7 +70,7 @@ pub struct PjsuaIncomingCall<'a> {
     account_id: pjsua::pjsua_acc_id,
     call_id: pjsua::pjsua_call_id,
     status: Option<IncomingStatus>,
-    _pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
+    pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
 }
 
 impl<'a> PjsuaIncomingCall<'a> {
@@ -63,7 +83,7 @@ impl<'a> PjsuaIncomingCall<'a> {
             account_id,
             call_id,
             status: None,
-            _pjsua_instance_started: pjsua_instance_started,
+            pjsua_instance_started,
         }
     }
 
@@ -97,7 +117,7 @@ pub struct PjsuaCall<'a> {
     _account_id: pjsua::pjsua_acc_id,
     call_id: pjsua::pjsua_call_id,
     status: CallStatus,
-    _pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
+    pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
     on_call_state_changed_rx: tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, State)>,
 }
 
@@ -114,7 +134,7 @@ impl<'a> PjsuaCall<'a> {
                 incoming_call.call_id,
                 Box::into_raw(user_data) as *mut std::ffi::c_void,
             );
-            get_error_as_result(status)?;
+            get_error_as_result(status).expect("Failed to set user data");
         }
 
         spawn_blocking_pjsua(move || {
@@ -125,15 +145,33 @@ impl<'a> PjsuaCall<'a> {
         .await
         .unwrap()?;
 
-        let capture_media = Ok(Self {
+        let call = Self {
             _account_id: incoming_call.account_id,
             call_id: incoming_call.call_id,
             status: CallStatus::InProgress,
-            _pjsua_instance_started: incoming_call._pjsua_instance_started,
+            pjsua_instance_started: incoming_call.pjsua_instance_started,
             on_call_state_changed_rx: state_changed_rx,
-        });
+        };
 
-        capture_media
+        Ok(call)
+    }
+
+    pub fn connect_with_sink_media_port(
+        &'a self,
+        sink_media_port: PjsuaSinkBufferMediaPort<'a>,
+        mem_pool: &'a PjsuaMemoryPool,
+    ) -> Result<PjsuaSinkBufferMediaPortConnected<'a>, PjsuaError> {
+        let bridge = self.pjsua_instance_started.get_bridge();
+
+        let sink_connected = bridge.add_sink(sink_media_port, mem_pool)?.connect(&self)?;
+
+        Ok(sink_connected)
+    }
+
+    pub(crate) fn get_conf_port_id(&self) -> pjsua::pjsua_conf_port_id {
+        let call_info = get_call_info(self.call_id).expect("Failed to get call info");
+
+        call_info.conf_slot
     }
 
     pub async fn hangup(mut self) -> Result<(), RemoteAlreadyHangUpError> {

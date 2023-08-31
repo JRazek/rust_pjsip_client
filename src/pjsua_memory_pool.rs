@@ -9,9 +9,7 @@ impl PjsuaMemoryPool {
     pub fn new(init_size: usize, increment_size: usize) -> Option<PjsuaMemoryPool> {
         let name = CStr::from_bytes_with_nul(b"pjsua_buffer_rust\0").unwrap();
 
-        let pool = unsafe {
-            pjsua::pjsua_pool_create(name.as_ptr(), init_size as u64, increment_size as u64)
-        };
+        let pool = unsafe { pjsua::pjsua_pool_create(name.as_ptr(), init_size, increment_size) };
 
         match pool {
             pool if pool.is_null() => None,
@@ -19,7 +17,7 @@ impl PjsuaMemoryPool {
         }
     }
 
-    pub fn as_mut(&self) -> *mut pjsua::pj_pool_t {
+    pub fn raw_handle(&self) -> *mut pjsua::pj_pool_t {
         self.pjsua_pool
     }
 }

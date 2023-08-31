@@ -1,17 +1,15 @@
+use super::error::PjsuaError;
 use std::sync::Mutex;
 use std::{marker::PhantomData, ptr};
 
+use super::error::get_error_as_result;
 use super::pjsua_call::PjsuaIncomingCall;
+use super::pjsua_conf_bridge::ConfBrigdgeHandle;
+use std::rc::Rc;
 
 use crate::{pjsua_account_config, pjsua_config, transport};
-use delegate::delegate;
-use std::sync::Arc;
 
-use tokio::sync::mpsc;
-
-use pjsua_account_config::cb_user_data::OnIncomingCallSendData;
-
-struct PjsuaInstanceHandle {
+pub(crate) struct PjsuaInstanceHandle {
     _not_send_sync: PhantomData<*const ()>,
     _private: (),
 }
@@ -19,6 +17,7 @@ struct PjsuaInstanceHandle {
 impl Drop for PjsuaInstanceHandle {
     fn drop(&mut self) {
         unsafe {
+            eprintln!("Dropping PjsuaInstanceHandle");
             pjsua::pjsua_destroy();
         }
     }
@@ -60,6 +59,7 @@ pub struct PjsuaInstanceInit {
     //    accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
     //    account_incoming_calls_rxs: Vec<mpsc::Receiver<OnIncomingCallSendData>>,
     log_config: pjsua_config::LogConfig,
+    media_config: pjsua_config::MediaConfig,
     pjsua_config: pjsua_config::PjsuaConfig,
     handle: PjsuaInstanceHandle,
 }
@@ -70,12 +70,11 @@ pub struct PjsuaInstanceInitTransportConfigured {
 }
 
 pub struct PjsuaInstanceStarted {
-    //    _accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded<'a>>>,
-    //    new_calls_rx: mpsc::Receiver<OnIncomingCallSendData>,
     _log_config: pjsua_config::LogConfig,
     _pjsua_config: pjsua_config::PjsuaConfig,
     _transport: transport::PjsuaTransport,
-    _handle: PjsuaInstanceHandle,
+    _handle: Rc<PjsuaInstanceHandle>,
+    bridge: ConfBrigdgeHandle,
 }
 
 impl PjsuaInstanceInitTransportConfigured {
@@ -84,11 +83,15 @@ impl PjsuaInstanceInitTransportConfigured {
             pjsua::pjsua_start();
         }
 
+        let handle = Rc::new(self.pjsua_instance_init.handle);
+        let bridge = ConfBrigdgeHandle::get_instance(handle.clone()).unwrap();
+
         PjsuaInstanceStarted {
             _log_config: self.pjsua_instance_init.log_config,
             _pjsua_config: self.pjsua_instance_init.pjsua_config,
             _transport: self.transport,
-            _handle: self.pjsua_instance_init.handle,
+            _handle: handle,
+            bridge,
         }
     }
 }
@@ -98,14 +101,16 @@ impl PjsuaInstanceUninit {
         PjsuaInstanceHandle::get_instance().map(|handle| PjsuaInstanceUninit { handle })
     }
 
-    pub fn init(self, mut pjsua_config: pjsua_config::PjsuaConfig) -> PjsuaInstanceInit {
-        unsafe {
-            let mut log_cfg = pjsua_config::LogConfig::default();
+    pub fn init(
+        self,
+        pjsua_config: pjsua_config::PjsuaConfig,
+    ) -> Result<PjsuaInstanceInit, PjsuaError> {
+        let log_config = pjsua_config::LogConfig::default();
+        let media_config = pjsua_config::MediaConfig::default();
 
-            pjsua::pjsua_init(pjsua_config.as_mut(), log_cfg.as_mut(), ptr::null());
+        let instance_init = PjsuaInstanceInit::from(self, pjsua_config, log_config, media_config);
 
-            PjsuaInstanceInit::from(self, pjsua_config, log_cfg)
-        }
+        instance_init
     }
 }
 
@@ -137,12 +142,16 @@ impl PjsuaInstanceStarted {
     pub async fn add_account(
         &self,
         account: pjsua_account_config::AccountConfig,
-    ) -> pjsua_account_config::AccountConfigAdded {
+    ) -> Result<pjsua_account_config::AccountConfigAdded, PjsuaError> {
         let account_added = account.add_to_instance_init(&self);
 
         //note, this does not use FFI
 
         account_added
+    }
+
+    pub(crate) fn get_bridge<'a>(&'a self) -> &'a ConfBrigdgeHandle {
+        &self.bridge
     }
 }
 
@@ -155,13 +164,25 @@ impl From<PjsuaInstanceHandle> for PjsuaInstanceUninit {
 impl PjsuaInstanceInit {
     fn from(
         instance: PjsuaInstanceUninit,
-        pjsua_config: pjsua_config::PjsuaConfig,
-        log_config: pjsua_config::LogConfig,
-    ) -> Self {
-        PjsuaInstanceInit {
-            handle: instance.handle,
-            pjsua_config,
-            log_config,
+        mut pjsua_config: pjsua_config::PjsuaConfig,
+        mut log_config: pjsua_config::LogConfig,
+        mut media_config: pjsua_config::MediaConfig,
+    ) -> Result<Self, PjsuaError> {
+        unsafe {
+            get_error_as_result(pjsua::pjsua_init(
+                pjsua_config.as_mut(),
+                log_config.as_mut(),
+                media_config.as_mut(),
+            ))?;
+
+            pjsua::pjsua_set_no_snd_dev();
+
+            Ok(PjsuaInstanceInit {
+                handle: instance.handle,
+                pjsua_config,
+                log_config,
+                media_config,
+            })
         }
     }
 }

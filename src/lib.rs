@@ -8,3 +8,4 @@ pub mod pjsua_softphone_api;
 pub mod pjsua_stream_buffer_media_port;
 pub mod transport;
 pub mod tokio_utils;
+pub mod pjsua_conf_bridge;

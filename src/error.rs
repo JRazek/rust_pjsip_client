@@ -86,3 +86,9 @@ pub fn ffi_assert_res<T: Debug, E: Debug>(res: Result<T, E>) -> T {
 
     res.unwrap()
 }
+
+pub fn ffi_assert_option<T: Debug>(res: Option<T>) -> T {
+    ffi_assert!(res.is_some(), "{:?}", res);
+
+    res.unwrap()
+}

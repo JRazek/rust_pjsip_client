@@ -1,10 +1,12 @@
+use super::pjsua_call::PjsuaCall;
+use super::pjsua_conf_bridge::ConfBrigdgeHandle;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 use crate::ffi_assert;
 use std::ptr;
 
 use super::error::PjsuaError;
 
-use super::error::{get_error_as_option, get_error_as_result};
+use super::error::get_error_as_result;
 
 extern "C" fn pjmedia_mem_capture_set_eof_cb2(
     _port: *mut pjsua::pjmedia_port,
@@ -20,13 +22,96 @@ pub struct PjsuaSinkBufferMediaPort<'a> {
     _pjsua_pool: &'a PjsuaMemoryPool,
 }
 
+pub struct PjsuaSinkBufferMediaPortAdded<'a> {
+    port_id: pjsua::pjsua_conf_port_id,
+    _media_port: PjsuaSinkBufferMediaPort<'a>,
+    brigde: &'a ConfBrigdgeHandle,
+}
+
+impl<'a> PjsuaSinkBufferMediaPortAdded<'a> {
+    pub(crate) fn new(
+        media_port: PjsuaSinkBufferMediaPort<'a>,
+        mem_pool: &PjsuaMemoryPool,
+        bridge: &'a ConfBrigdgeHandle,
+    ) -> Result<PjsuaSinkBufferMediaPortAdded<'a>, PjsuaError> {
+        let mut port_id = pjsua::pjsua_conf_port_id::default();
+
+        unsafe {
+            pjsua::pjsua_conf_add_port(
+                mem_pool.raw_handle(),
+                media_port.raw_handle(),
+                &mut port_id,
+            );
+        }
+        Ok(PjsuaSinkBufferMediaPortAdded {
+            port_id,
+            _media_port: media_port,
+            brigde: bridge,
+        })
+    }
+
+    pub(crate) fn connect(
+        self,
+        call: &'a PjsuaCall,
+    ) -> Result<PjsuaSinkBufferMediaPortConnected<'a>, PjsuaError> {
+        PjsuaSinkBufferMediaPortConnected::new(self, call)
+    }
+
+    pub(crate) fn port_id(&self) -> pjsua::pjsua_conf_port_id {
+        self.port_id
+    }
+}
+
+impl<'a> Drop for PjsuaSinkBufferMediaPortAdded<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            pjsua::pjsua_conf_remove_port(self.port_id);
+        }
+    }
+}
+
+pub struct PjsuaSinkBufferMediaPortConnected<'a> {
+    added_media_port: PjsuaSinkBufferMediaPortAdded<'a>,
+    call: &'a PjsuaCall<'a>,
+}
+
+impl<'a> PjsuaSinkBufferMediaPortConnected<'a> {
+    pub(crate) fn new(
+        added_media_port: PjsuaSinkBufferMediaPortAdded<'a>,
+        call: &'a PjsuaCall,
+    ) -> Result<PjsuaSinkBufferMediaPortConnected<'a>, PjsuaError> {
+        unsafe {
+            let status =
+                pjsua::pjsua_conf_connect(call.get_conf_port_id(), added_media_port.port_id());
+
+            get_error_as_result(status)?;
+        }
+
+        Ok(PjsuaSinkBufferMediaPortConnected {
+            call,
+            added_media_port,
+        })
+    }
+}
+
+impl<'a> Drop for PjsuaSinkBufferMediaPortConnected<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            pjsua::pjsua_conf_disconnect(
+                self.call.get_conf_port_id(),
+                self.added_media_port.port_id(),
+            );
+        }
+    }
+}
+
 impl<'a> PjsuaSinkBufferMediaPort<'a> {
     pub fn new(
         buffer_size: usize,
         sample_rate: usize,
         channels_count: usize,
         samples_per_frame: usize,
-        pjsua_pool: &'a mut PjsuaMemoryPool,
+        pjsua_pool: &'a PjsuaMemoryPool,
     ) -> Result<PjsuaSinkBufferMediaPort<'a>, PjsuaError> {
         let mut buffer: Box<Vec<u8>> = Box::new(Vec::with_capacity(buffer_size));
 
@@ -36,9 +121,9 @@ impl<'a> PjsuaSinkBufferMediaPort<'a> {
             let mut media_port = ptr::null_mut();
 
             let status = pjsua::pjmedia_mem_capture_create(
-                pjsua_pool.as_mut(),
+                pjsua_pool.raw_handle(),
                 buffer_raw_bytes as *mut _,
-                buffer_size as u64,
+                buffer_size,
                 sample_rate as u32,
                 channels_count as u32,
                 samples_per_frame as u32,
@@ -71,6 +156,10 @@ impl<'a> PjsuaSinkBufferMediaPort<'a> {
             buffer_ptr,
             _pjsua_pool: pjsua_pool,
         })
+    }
+
+    pub(crate) fn raw_handle(&self) -> *mut pjsua::pjmedia_port {
+        self.media_port
     }
 }
 
