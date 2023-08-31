@@ -6,11 +6,10 @@ use super::error::PjsuaError;
 
 use super::error::{get_error_as_option, get_error_as_result};
 
-extern "C" fn pjmedia_mem_capture_set_eof_cb(
+extern "C" fn pjmedia_mem_capture_set_eof_cb2(
     _port: *mut pjsua::pjmedia_port,
     _user_data: *mut ::std::os::raw::c_void,
-) -> pjsua::pj_status_t {
-    0
+) {
 }
 
 #[derive(Debug)]
@@ -58,10 +57,10 @@ impl<'a> PjsuaSinkBufferMediaPort<'a> {
         let buffer_ptr = Box::into_raw(buffer);
 
         let _ = unsafe {
-            let status = pjsua::pjmedia_mem_capture_set_eof_cb(
+            let status = pjsua::pjmedia_mem_capture_set_eof_cb2(
                 media_port,
                 buffer_ptr as *mut _,
-                Some(pjmedia_mem_capture_set_eof_cb),
+                Some(pjmedia_mem_capture_set_eof_cb2),
             );
 
             get_error_as_result(status)?
@@ -92,7 +91,7 @@ impl<'a> Drop for PjsuaSinkBufferMediaPort<'a> {
 
 use super::pjsua_call::PjsuaSinkMediaPort;
 
-impl<'a> PjsuaSinkMediaPort<'a> for PjsuaSinkBufferMediaPort<'a> {
+impl<'a> PjsuaSinkMediaPort for PjsuaSinkBufferMediaPort<'a> {
     fn as_pjmedia_port(&mut self) -> *mut pjsua::pjmedia_port {
         self.media_port as *mut _
     }

@@ -33,6 +33,8 @@ fn hangup_call(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
     Ok(())
 }
 
+//fn connect_media_ports(lhs: pjsua::pjmedia_port, rhs:
+
 #[derive(Debug)]
 enum IncomingStatus {
     Answered,
@@ -66,7 +68,7 @@ impl<'a> PjsuaIncomingCall<'a> {
         }
     }
 
-    pub async fn answer_ok<Sink: PjsuaSinkMediaPort<'a>>(
+    pub async fn answer_ok<Sink: PjsuaSinkMediaPort>(
         mut self,
         sink: Sink,
     ) -> Result<PjsuaCall<'a, Sink>, PjsuaError> {
@@ -95,17 +97,17 @@ impl<'a> Drop for PjsuaIncomingCall<'a> {
     }
 }
 
-pub struct PjsuaCall<'a, Sink: PjsuaSinkMediaPort<'a>> {
+pub struct PjsuaCall<'a, Sink: PjsuaSinkMediaPort> {
     _account_id: pjsua::pjsua_acc_id,
     call_id: pjsua::pjsua_call_id,
     _phantom: std::marker::PhantomData<&'a Sink>,
     _sink: Sink,
     status: CallStatus,
-    pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
+    _pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
     on_call_state_changed_rx: tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, State)>,
 }
 
-impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
+impl<'a, Sink: PjsuaSinkMediaPort> PjsuaCall<'a, Sink> {
     async fn new(
         incoming_call: PjsuaIncomingCall<'a>,
         sink: Sink,
@@ -138,7 +140,7 @@ impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
             _phantom: std::marker::PhantomData,
             _sink: sink,
             status: CallStatus::InProgress,
-            pjsua_instance_started: incoming_call._pjsua_instance_started,
+            _pjsua_instance_started: incoming_call._pjsua_instance_started,
             on_call_state_changed_rx: state_changed_rx,
         });
 
@@ -183,7 +185,7 @@ impl<'a, Sink: PjsuaSinkMediaPort<'a>> PjsuaCall<'a, Sink> {
     }
 }
 
-impl<'a, Sink: PjsuaSinkMediaPort<'a>> Drop for PjsuaCall<'a, Sink> {
+impl<'a, Sink: PjsuaSinkMediaPort> Drop for PjsuaCall<'a, Sink> {
     fn drop(&mut self) {
         if let CallStatus::InProgress = self.status {
             _ = hangup_call(self.call_id);
@@ -202,7 +204,11 @@ impl std::fmt::Display for RemoteAlreadyHangUpError {
 
 impl std::error::Error for RemoteAlreadyHangUpError {}
 
-pub trait PjsuaSinkMediaPort<'a> {
+pub trait PjsuaSinkMediaPort {
+    fn as_pjmedia_port(&mut self) -> *mut pjsua::pjmedia_port;
+}
+
+pub trait PjsuaStreamMediaPort {
     fn as_pjmedia_port(&mut self) -> *mut pjsua::pjmedia_port;
 }
 
