@@ -47,20 +47,11 @@ async fn main() {
 
     let mem_pool = PjsuaMemoryPool::new(1024, 1024).expect("Failed to create memory pool");
 
-    let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(1024, 8000, 1, 1024, &mem_pool)
+    let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(2048, 8000, 1, 1024, &mem_pool)
         .expect("Failed to create sink buffer media port");
 
     call.connect_with_sink_media_port(sink_buffer_media_port, &mem_pool)
         .expect("Failed to connect sink buffer media port");
 
-    tokio::select! {
-        _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-            println!("timed out!");
-            println!("hanging up...");
-            let _ = call.hangup().await;
-        },
-        Ok(_) = call.await_hangup() => {
-            println!("remote disconnected.");
-        },
-    }
+    call.await_hangup().await.expect("await_hangup failed!");
 }

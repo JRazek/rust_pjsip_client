@@ -5,9 +5,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pjsua = { git = "https://github.com/pjsip/pjproject.git" }
+#pjsua = { git = "https://github.com/pjsip/pjproject.git" }
+
+pjsua = { git = "https://github.com/JRazek/pjproject.git", branch = "update-rust-bindgen-version" }
+
 delegate = "0.10.0"
 tokio = { version = "1.32.0", features = ["full"] }
+thingbuf = "0.1.1"
 
 [build-dependencies]
 pkg-config = "0.3.27"
