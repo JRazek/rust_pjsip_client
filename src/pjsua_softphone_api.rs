@@ -175,7 +175,7 @@ impl PjsuaInstanceInit {
                 media_config.as_mut(),
             ))?;
 
-            pjsua::pjsua_set_no_snd_dev();
+            get_error_as_result(pjsua::pjsua_set_null_snd_dev())?;
 
             Ok(PjsuaInstanceInit {
                 handle: instance.handle,

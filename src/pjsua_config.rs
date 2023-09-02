@@ -64,6 +64,8 @@ pub unsafe extern "C" fn on_call_state(
 
     let state = info.state.try_into();
 
+    eprintln!("on_call_state callback: {:?}", state);
+
     let state = ffi_assert_res(state);
 
     let res = (*state_changed_user_data)
@@ -71,6 +73,24 @@ pub unsafe extern "C" fn on_call_state(
         .try_send((call_id, state));
 
     ffi_assert_res(res);
+}
+
+unsafe extern "C" fn on_media_event(event: *mut pjsua::pjmedia_event) {
+    eprintln!("on_media_event callback. type: {:?}", (*event).type_);
+}
+
+unsafe extern "C" fn on_create_media_transport(
+    call_id: pjsua::pjsua_call_id,
+    media_idx: ::std::os::raw::c_uint,
+    base_tp: *mut pjsua::pjmedia_transport,
+    flags: ::std::os::raw::c_uint,
+) -> *mut pjsua::pjmedia_transport {
+    eprintln!(
+        "on_create_media_transport callback. call_id: {:?}, media_idx: {:?}, flags: {:?}",
+        call_id, media_idx, flags
+    );
+
+    base_tp
 }
 
 pub struct PjsuaConfig {
@@ -87,6 +107,8 @@ impl PjsuaConfig {
 
             pjsua_config.cb.on_incoming_call = Some(on_incoming_call);
             pjsua_config.cb.on_call_state = Some(on_call_state);
+            pjsua_config.cb.on_media_event = Some(on_media_event);
+            pjsua_config.cb.on_create_media_transport = Some(on_create_media_transport);
 
             PjsuaConfig { pjsua_config }
         }
@@ -104,7 +126,8 @@ impl Default for LogConfig {
                 Box::new(MaybeUninit::<pjsua::pjsua_logging_config>::zeroed().assume_init());
             pjsua::pjsua_logging_config_default(log_cfg.as_mut());
 
-            log_cfg.console_level = 1;
+            log_cfg.console_level = 1000;
+            log_cfg.level = 1000;
 
             Self {
                 logging_cfg: log_cfg,
@@ -137,12 +160,7 @@ impl Default for MediaConfig {
 
             pjsua::pjsua_media_config_default(media_cfg.as_mut());
 
-            media_cfg.clock_rate = 8000;
-            media_cfg.snd_clock_rate = 8000;
-            media_cfg.ec_tail_len = 0;
             media_cfg.no_vad = 1;
-
-            media_cfg.snd_auto_close_time = 0;
 
             Self { media_cfg }
         }

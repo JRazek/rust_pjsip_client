@@ -32,6 +32,9 @@ fn reject_incoming(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
 }
 
 fn hangup_call(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
+    if !is_call_active(call_id) {
+        return Ok(());
+    }
     unsafe {
         let status = pjsua::pjsua_call_hangup(call_id, 200, ptr::null(), ptr::null());
         get_error_as_result(status)?;
@@ -52,18 +55,16 @@ fn get_call_info(call_id: pjsua::pjsua_call_id) -> Result<pjsua::pjsua_call_info
     Ok(call_info)
 }
 
-//fn connect_media_ports(lhs: pjsua::pjmedia_port, rhs:
+fn is_call_active(call_id: pjsua::pjsua_call_id) -> bool {
+    let active = unsafe { pjsua::pjsua_call_is_active(call_id) };
+
+    active != 0
+}
 
 #[derive(Debug)]
 enum IncomingStatus {
     Answered,
     Rejected,
-}
-
-#[derive(Debug)]
-enum CallStatus {
-    InProgress,
-    LocalHangup,
 }
 
 pub struct PjsuaIncomingCall<'a> {
@@ -107,18 +108,25 @@ impl<'a> PjsuaIncomingCall<'a> {
 
 impl<'a> Drop for PjsuaIncomingCall<'a> {
     fn drop(&mut self) {
-        if let Some(IncomingStatus::Rejected) = &self.status {
-            reject_incoming(self.call_id).unwrap();
+        match &self.status {
+            Some(IncomingStatus::Answered) => {}
+            _ => {
+                eprintln!("Dropping PjsuaIncomingCall");
+                reject_incoming(self.call_id).expect("Failed to reject incoming call");
+            }
         }
     }
 }
 
+type CallStateReceiver = tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, State)>;
+
+use std::cell::RefCell;
+
 pub struct PjsuaCall<'a> {
     _account_id: pjsua::pjsua_acc_id,
     call_id: pjsua::pjsua_call_id,
-    status: CallStatus,
     pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
-    on_call_state_changed_rx: tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, State)>,
+    on_call_state_changed_rx: RefCell<CallStateReceiver>,
 }
 
 impl<'a> PjsuaCall<'a> {
@@ -148,9 +156,8 @@ impl<'a> PjsuaCall<'a> {
         let call = Self {
             _account_id: incoming_call.account_id,
             call_id: incoming_call.call_id,
-            status: CallStatus::InProgress,
             pjsua_instance_started: incoming_call.pjsua_instance_started,
-            on_call_state_changed_rx: state_changed_rx,
+            on_call_state_changed_rx: RefCell::new(state_changed_rx),
         };
 
         Ok(call)
@@ -165,16 +172,20 @@ impl<'a> PjsuaCall<'a> {
 
         let sink_connected = bridge.add_sink(sink_media_port, mem_pool)?.connect(&self)?;
 
+        let has = unsafe { pjsua::pjsua_call_has_media(self.call_id) };
+
+        println!("has media: {}", has);
+
         Ok(sink_connected)
     }
 
-    pub(crate) fn get_conf_port_id(&self) -> pjsua::pjsua_conf_port_id {
-        let call_info = get_call_info(self.call_id).expect("Failed to get call info");
+    pub(crate) fn get_conf_port_slot(&self) -> Result<pjsua::pjsua_conf_port_id, PjsuaError> {
+        let conf_slot = unsafe { pjsua::pjsua_call_get_conf_port(self.call_id) };
 
-        call_info.conf_slot
+        Ok(conf_slot)
     }
 
-    pub async fn hangup(mut self) -> Result<(), RemoteAlreadyHangUpError> {
+    pub async fn hangup(self) -> Result<(), RemoteAlreadyHangUpError> {
         spawn_blocking_pjsua(move || match hangup_call(self.call_id) {
             Ok(()) => Ok(()),
             Err(_) => Err(RemoteAlreadyHangUpError),
@@ -182,14 +193,13 @@ impl<'a> PjsuaCall<'a> {
         .await
         .unwrap()?;
 
-        self.status = CallStatus::LocalHangup;
-
         Ok(())
     }
 
-    pub async fn wait_for_state_change(&mut self) -> Result<State, PjsuaError> {
+    pub async fn wait_for_state_change(&self) -> Result<State, PjsuaError> {
         let (call_id, state) = self
             .on_call_state_changed_rx
+            .borrow_mut()
             .recv()
             .await
             .expect("this should not happen");
@@ -199,7 +209,10 @@ impl<'a> PjsuaCall<'a> {
         Ok(state)
     }
 
-    pub async fn await_hangup(&mut self) -> Result<(), PjsuaError> {
+    pub async fn await_hangup(
+        &self,
+        port: PjsuaSinkBufferMediaPortConnected<'a>,
+    ) -> Result<(), PjsuaError> {
         loop {
             let state = self.wait_for_state_change().await?;
 
@@ -208,15 +221,16 @@ impl<'a> PjsuaCall<'a> {
             }
         }
 
+        drop(port);
+
         Ok(())
     }
 }
 
 impl<'a> Drop for PjsuaCall<'a> {
     fn drop(&mut self) {
-        if let CallStatus::InProgress = self.status {
-            _ = hangup_call(self.call_id);
-        }
+        eprintln!("Dropping PjsuaCall...");
+        _ = hangup_call(self.call_id);
     }
 }
 

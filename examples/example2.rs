@@ -37,21 +37,30 @@ async fn main() {
 
     println!("memory_pool: {:?}", memory_pool);
 
-    let sink_buffer_media_port =
-        PjsuaSinkBufferMediaPort::new(2048, 8000, 1, 1024, &mut memory_pool)
-            .expect("PjsuaSinkBufferMediaPort::new failed!");
-
-    println!("sink_buffer_media_port: {:?}", sink_buffer_media_port);
-
-    let mut call = incoming_call.answer_ok().await.expect("answer failed!");
+    let call = incoming_call.answer_ok().await.expect("answer failed!");
 
     let mem_pool = PjsuaMemoryPool::new(1024, 1024).expect("Failed to create memory pool");
 
-    let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(2048, 8000, 1, 1024, &mem_pool)
+    let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(None, 8000, 1, 1024, &mem_pool)
         .expect("Failed to create sink buffer media port");
 
-    call.connect_with_sink_media_port(sink_buffer_media_port, &mem_pool)
+    let media_port_connected = call
+        .connect_with_sink_media_port(sink_buffer_media_port, &mem_pool)
         .expect("Failed to connect sink buffer media port");
 
-    call.await_hangup().await.expect("await_hangup failed!");
+    for _ in 0..10 {
+        media_port_connected
+            .get_frame()
+            .expect("Failed to get frame");
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+
+    drop(media_port_connected);
+
+    call.hangup().await.expect("Failed to hangup");
+
+    //    call.await_hangup(media_port_connected)
+    //        .await
+    //        .expect("await_hangup failed!");
 }
