@@ -18,33 +18,35 @@ impl Drop for PjsuaInstanceHandle {
     fn drop(&mut self) {
         unsafe {
             eprintln!("Dropping PjsuaInstanceHandle");
-            pjsua::pjsua_destroy();
+            let status = get_error_as_result(pjsua::pjsua_destroy());
+
+            eprintln!("Dropping PjsuaInstanceHandle status: {:?}", status);
         }
     }
 }
 
 impl PjsuaInstanceHandle {
-    pub fn get_instance() -> Option<PjsuaInstanceHandle> {
+    pub fn get_instance() -> Result<PjsuaInstanceHandle, PjsuaError> {
         static INSTANCE_CRATED: Mutex<bool> = Mutex::new(false);
 
         if let Ok(mut instance_guard) = INSTANCE_CRATED.try_lock() {
             let val = *instance_guard;
-            return match val {
-                false => {
-                    *instance_guard = true;
-                    unsafe {
-                        pjsua::pjsua_create();
-                    }
-                    Some(PjsuaInstanceHandle {
-                        _private: (),
-                        _not_send_sync: PhantomData,
-                    })
+            if let false = val {
+                *instance_guard = true;
+                unsafe {
+                    get_error_as_result(pjsua::pjsua_create())?;
                 }
-                true => None,
+                return Ok(PjsuaInstanceHandle {
+                    _private: (),
+                    _not_send_sync: PhantomData,
+                });
             };
         }
 
-        None
+        Err(PjsuaError {
+            code: -1,
+            message: "Pjsua instance already created".to_string(),
+        })
     }
 }
 
@@ -78,26 +80,28 @@ pub struct PjsuaInstanceStarted {
 }
 
 impl PjsuaInstanceInitTransportConfigured {
-    pub fn start(self) -> PjsuaInstanceStarted {
+    pub fn start(self) -> Result<PjsuaInstanceStarted, PjsuaError> {
         unsafe {
-            pjsua::pjsua_start();
+            get_error_as_result(pjsua::pjsua_start())?;
         }
 
         let handle = Rc::new(self.pjsua_instance_init.handle);
         let bridge = ConfBrigdgeHandle::get_instance(handle.clone()).unwrap();
 
-        PjsuaInstanceStarted {
+        let instance_started = PjsuaInstanceStarted {
             _log_config: self.pjsua_instance_init.log_config,
             _pjsua_config: self.pjsua_instance_init.pjsua_config,
             _transport: self.transport,
             _handle: handle,
             bridge,
-        }
+        };
+
+        Ok(instance_started)
     }
 }
 
 impl PjsuaInstanceUninit {
-    pub fn get_instance() -> Option<PjsuaInstanceUninit> {
+    pub fn get_instance() -> Result<PjsuaInstanceUninit, PjsuaError> {
         PjsuaInstanceHandle::get_instance().map(|handle| PjsuaInstanceUninit { handle })
     }
 
@@ -118,22 +122,22 @@ impl PjsuaInstanceInit {
     pub fn set_transport(
         self,
         mut transport: transport::PjsuaTransport,
-    ) -> PjsuaInstanceInitTransportConfigured {
+    ) -> Result<PjsuaInstanceInitTransportConfigured, PjsuaError> {
         unsafe {
             let mut transport_id: pjsua::pjsua_transport_id = 0;
 
-            pjsua::pjsua_transport_create(
+            get_error_as_result(pjsua::pjsua_transport_create(
                 pjsua::pjsip_transport_type_e_PJSIP_TRANSPORT_UDP,
                 transport.as_mut(),
                 &mut transport_id,
-            );
+            ))?;
 
             let instance_transport_set = PjsuaInstanceInitTransportConfigured {
                 pjsua_instance_init: self,
                 transport,
             };
 
-            instance_transport_set
+            Ok(instance_transport_set)
         }
     }
 }

@@ -161,6 +161,7 @@ impl Default for MediaConfig {
             pjsua::pjsua_media_config_default(media_cfg.as_mut());
 
             media_cfg.no_vad = 1;
+            media_cfg.ec_tail_len = 0;
 
             Self { media_cfg }
         }

@@ -15,7 +15,7 @@ use super::pjsua_sink_buffer_media_port::{
 
 fn accept_incoming(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
     unsafe {
-        let status = pjsua::pjsua_call_answer(call_id, 200, ptr::null(), ptr::null());
+        let status = pjsua::pjsua_call_answer(call_id, 183, ptr::null(), ptr::null());
         get_error_as_result(status)?;
     }
 
@@ -182,7 +182,13 @@ impl<'a> PjsuaCall<'a> {
     pub(crate) fn get_conf_port_slot(&self) -> Result<pjsua::pjsua_conf_port_id, PjsuaError> {
         let conf_slot = unsafe { pjsua::pjsua_call_get_conf_port(self.call_id) };
 
-        Ok(conf_slot)
+        match conf_slot {
+            pjsua::pjsua_invalid_id_const__PJSUA_INVALID_ID => Err(PjsuaError {
+                code: -1,
+                message: "Invalid conf slot".to_string(),
+            }),
+            _ => Ok(conf_slot),
+        }
     }
 
     pub async fn hangup(self) -> Result<(), RemoteAlreadyHangUpError> {
@@ -209,10 +215,7 @@ impl<'a> PjsuaCall<'a> {
         Ok(state)
     }
 
-    pub async fn await_hangup(
-        &self,
-        port: PjsuaSinkBufferMediaPortConnected<'a>,
-    ) -> Result<(), PjsuaError> {
+    pub async fn await_hangup(&self) -> Result<(), PjsuaError> {
         loop {
             let state = self.wait_for_state_change().await?;
 
@@ -220,8 +223,6 @@ impl<'a> PjsuaCall<'a> {
                 break;
             }
         }
-
-        drop(port);
 
         Ok(())
     }

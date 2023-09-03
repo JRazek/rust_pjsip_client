@@ -10,11 +10,11 @@ impl PjsuaTransport {
         let mut transport_config =
             unsafe { MaybeUninit::<pjsua::pjsua_transport_config>::zeroed().assume_init() };
 
-        transport_config.port = port.unwrap_or(0) as u32;
-
         unsafe {
             pjsua::pjsua_transport_config_default(&mut transport_config);
         };
+
+        transport_config.port = port.unwrap_or(0) as u32;
 
         PjsuaTransport { transport_config }
     }

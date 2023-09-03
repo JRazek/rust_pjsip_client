@@ -7,6 +7,9 @@ use crate::ffi_assert;
 use std::ptr;
 use std::vec;
 
+use std::cell::RefCell;
+
+use std::mem::MaybeUninit;
 use thingbuf::mpsc::{channel as thingbuf_channel, Receiver as ThingbufReceiver};
 
 use super::error::PjsuaError;
@@ -39,7 +42,7 @@ pub struct PjsuaSinkBufferMediaPort<'a> {
     //this holds the buffer
     media_port: *mut pjsua::pjmedia_port,
     user_data_ptr: *mut cb_data::EofCb2UserData,
-    rx_channel: ThingbufReceiver<Box<[u8]>>,
+    rx_channel: RefCell<ThingbufReceiver<Box<[u8]>>>,
     _pjsua_pool: &'a PjsuaMemoryPool,
 }
 
@@ -109,14 +112,7 @@ impl<'a> PjsuaSinkBufferMediaPortConnected<'a> {
             let status =
                 pjsua::pjsua_conf_connect(call.get_conf_port_slot()?, added_media_port.port_slot());
 
-            pjsua::pjsua_conf_adjust_tx_level(call.get_conf_port_slot()?, 1.0);
-            pjsua::pjsua_conf_adjust_rx_level(added_media_port.port_slot(), -1.0);
-
             get_error_as_result(status)?;
-
-            //            let status = pjsua::pjsua_conf_connect(0, call.get_conf_port_slot()?);
-            //
-            //            get_error_as_result(status)?;
         }
 
         Ok(PjsuaSinkBufferMediaPortConnected {
@@ -125,20 +121,16 @@ impl<'a> PjsuaSinkBufferMediaPortConnected<'a> {
         })
     }
 
-    pub fn get_frame(&self) -> Result<(), PjsuaError> {
-        use std::mem::MaybeUninit;
-        let mut frame = unsafe { MaybeUninit::<pjsua::pjmedia_frame>::zeroed().assume_init() };
+    pub async fn get_frame(&self) -> Option<Box<[u8]>> {
+        let frame = self
+            .added_media_port
+            .media_port
+            .rx_channel
+            .borrow_mut()
+            .recv()
+            .await?;
 
-        unsafe {
-            get_error_as_result(pjsua::pjmedia_port_get_frame(
-                self.added_media_port.media_port.media_port,
-                &mut frame,
-            ))
-        }?;
-
-        println!("frame type: {:?}, size: {}", frame.type_, frame.size);
-
-        Ok(())
+        Some(frame)
     }
 }
 
@@ -224,7 +216,7 @@ impl<'a> PjsuaSinkBufferMediaPort<'a> {
         Ok(PjsuaSinkBufferMediaPort {
             media_port,
             user_data_ptr: Box::into_raw(user_data),
-            rx_channel,
+            rx_channel: RefCell::new(rx_channel),
             _pjsua_pool: pjsua_pool,
         })
     }

@@ -8,7 +8,7 @@ const CSTRING_NEW_FAILED: &str = "CString::new failed!";
 
 use tokio::sync::mpsc;
 
-use self::cb_user_data::OnIncomingCallSendData;
+use super::error::get_error_as_result;
 use super::error::PjsuaError;
 
 pub struct AccountConfigAdded<'a> {
@@ -186,7 +186,10 @@ impl<'a> Drop for AccountConfigAdded<'a> {
                 as *mut cb_user_data::AccountConfigUserData;
 
             assert!(!on_incoming_call_tx.is_null());
-            pjsua::pjsua_acc_del(self.account_id);
+            let status = get_error_as_result(pjsua::pjsua_acc_del(self.account_id));
+            if let Err(e) = status {
+                eprintln!("error while dropping account: {}", e);
+            }
 
             //assuming that on_incoming_call cb is neigther in progress nor to be called again
             //this assumption is made on the premises of:
