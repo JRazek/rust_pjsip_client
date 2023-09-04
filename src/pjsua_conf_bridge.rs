@@ -1,10 +1,9 @@
 #![allow(dead_code)]
 
 use super::error::PjsuaError;
-use super::pjsua_call::PjsuaCall;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 use super::pjsua_sink_buffer_media_port::{
-    PjsuaSinkBufferMediaPort, PjsuaSinkBufferMediaPortAdded, PjsuaSinkBufferMediaPortConnected,
+    PjsuaSinkBufferMediaPort, PjsuaSinkBufferMediaPortAdded,
 };
 use super::pjsua_softphone_api;
 use std::marker::PhantomData;

@@ -1,9 +1,8 @@
 use super::error::PjsuaError;
+use std::marker::PhantomData;
 use std::sync::Mutex;
-use std::{marker::PhantomData, ptr};
 
 use super::error::get_error_as_result;
-use super::pjsua_call::PjsuaIncomingCall;
 use super::pjsua_conf_bridge::ConfBrigdgeHandle;
 use std::rc::Rc;
 
@@ -58,10 +57,8 @@ pub struct PjsuaInstanceUninit {
 //The order of fields is important for the drop order.
 //PjsuaInstanceInit MUST be dropped as the last, as it uninitializes pjsua completely.
 pub struct PjsuaInstanceInit {
-    //    accounts: Vec<Arc<pjsua_account_config::AccountConfigAdded>>,
-    //    account_incoming_calls_rxs: Vec<mpsc::Receiver<OnIncomingCallSendData>>,
     log_config: pjsua_config::LogConfig,
-    media_config: pjsua_config::MediaConfig,
+    _media_config: pjsua_config::MediaConfig,
     pjsua_config: pjsua_config::PjsuaConfig,
     handle: PjsuaInstanceHandle,
 }
@@ -185,7 +182,7 @@ impl PjsuaInstanceInit {
                 handle: instance.handle,
                 pjsua_config,
                 log_config,
-                media_config,
+                _media_config: media_config,
             })
         }
     }

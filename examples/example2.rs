@@ -42,11 +42,9 @@ async fn main() {
     let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(Some(2048), 8000, 1, 160, &mem_pool)
         .expect("Failed to create sink buffer media port");
 
-    let media_port_connected = call
+    let _media_port_connected = call
         .connect_with_sink_media_port(sink_buffer_media_port, &mem_pool)
         .expect("Failed to connect sink buffer media port");
-
-    //    tokio::time::sleep(tokio::time::Duration::from_millis(50000)).await;
 
     call.await_hangup().await.expect("await_hangup failed!");
 }

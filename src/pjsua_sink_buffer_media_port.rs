@@ -1,7 +1,6 @@
 use super::pjsua_call::PjsuaCall;
 use super::pjsua_conf_bridge::ConfBrigdgeHandle;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
-use crate::error::ffi_assert_res;
 use crate::error::get_error_as_result;
 use crate::ffi_assert;
 use std::ptr;
@@ -9,13 +8,12 @@ use std::vec;
 
 use std::cell::RefCell;
 
-use std::mem::MaybeUninit;
 use thingbuf::mpsc::{channel as thingbuf_channel, Receiver as ThingbufReceiver};
 
 use super::error::PjsuaError;
 
 extern "C" fn pjmedia_mem_capture_eof_cb(
-    port: *mut pjsua::pjmedia_port,
+    _port: *mut pjsua::pjmedia_port,
     user_data: *mut ::std::os::raw::c_void,
 ) {
     use cb_data::EofCb2UserData;
@@ -32,9 +30,11 @@ extern "C" fn pjmedia_mem_capture_eof_cb(
     let buffer_out = buffer_in.iter().cloned().collect::<Box<[u8]>>();
     let channel_tx = unsafe { &mut (*user_data).tx_channel };
 
-    let _ = channel_tx.try_send(buffer_out);
+    use thingbuf::mpsc::errors::TrySendError::Full;
 
-    eprintln!("returning from pjmedia_mem_capture_eof_cb2...");
+    if let Err(Full(_)) = channel_tx.try_send(buffer_out) {
+        eprintln!("pjmedia_mem_capture_eof_cb2 buffer full, dropping frame...");
+    }
 }
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub struct PjsuaSinkBufferMediaPort<'a> {
 pub struct PjsuaSinkBufferMediaPortAdded<'a> {
     port_slot: pjsua::pjsua_conf_port_id,
     media_port: PjsuaSinkBufferMediaPort<'a>,
-    brigde: &'a ConfBrigdgeHandle,
+    _brigde: &'a ConfBrigdgeHandle,
 }
 
 impl<'a> PjsuaSinkBufferMediaPortAdded<'a> {
@@ -70,7 +70,7 @@ impl<'a> PjsuaSinkBufferMediaPortAdded<'a> {
         Ok(PjsuaSinkBufferMediaPortAdded {
             port_slot,
             media_port,
-            brigde: bridge,
+            _brigde: bridge,
         })
     }
 

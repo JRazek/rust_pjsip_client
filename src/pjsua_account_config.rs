@@ -1,5 +1,6 @@
 use std::{ffi::CString, mem::MaybeUninit};
 
+use crate::error::get_error_as_result;
 use crate::{ffi_assert, pjsua_call, pjsua_softphone_api};
 
 use pjsua::pj_str;
@@ -8,7 +9,6 @@ const CSTRING_NEW_FAILED: &str = "CString::new failed!";
 
 use tokio::sync::mpsc;
 
-use super::error::get_error_as_result;
 use super::error::PjsuaError;
 
 pub struct AccountConfigAdded<'a> {
@@ -138,8 +138,6 @@ impl AccountConfig {
         mut self,
         pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
     ) -> Result<AccountConfigAdded<'a>, PjsuaError> {
-        use crate::error::get_error_as_result;
-
         let account_raw = self.as_mut();
 
         let mut account_id: pjsua::pjsua_acc_id = 2;

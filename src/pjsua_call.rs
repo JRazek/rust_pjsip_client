@@ -43,6 +43,7 @@ fn hangup_call(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn get_call_info(call_id: pjsua::pjsua_call_id) -> Result<pjsua::pjsua_call_info, PjsuaError> {
     let call_info = unsafe {
         let mut call_info = MaybeUninit::<pjsua::pjsua_call_info>::zeroed().assume_init();
