@@ -171,7 +171,7 @@ impl<'a> PjsuaSinkBufferMediaPort<'a> {
     ) -> Result<PjsuaSinkBufferMediaPort<'a>, PjsuaError> {
         let buffer_size = match buffer_size {
             Some(size) => size,
-            None => sample_rate * samples_per_frame * channels_count / 8,
+            None => samples_per_frame * channels_count * 2,
         };
 
         let mut buffer: Box<[u8]> = static_size_buffer(buffer_size);

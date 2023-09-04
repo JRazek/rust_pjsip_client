@@ -39,7 +39,7 @@ async fn main() {
 
     let mem_pool = PjsuaMemoryPool::new(10000, 10000).expect("Failed to create memory pool");
 
-    let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(Some(2048), 8000, 1, 160, &mem_pool)
+    let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(None, 8000, 1, 160, &mem_pool)
         .expect("Failed to create sink buffer media port");
 
     let _media_port_connected = call
