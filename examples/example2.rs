@@ -5,7 +5,19 @@ use pjsip_client::transport::PjsuaTransport;
 
 use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 
-use pjsip_client::pjsua_sink_buffer_media_port::PjsuaSinkBufferMediaPort;
+use pjsip_client::pjsua_call::PjsuaCallSetup;
+use pjsip_client::pjsua_sink_buffer_media_port::{
+    PjsuaSinkBufferMediaPort, PjsuaSinkBufferMediaPortConnected,
+};
+
+async fn run_call<'a>(
+    sink_buffer_media_port: PjsuaSinkBufferMediaPortConnected<'a>,
+    pjsua_call: &'a PjsuaCallSetup<'a>,
+) {
+    while let Some(frame) = sink_buffer_media_port.get_frame().await {
+        println!("frame: {:?}", frame);
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -22,29 +34,38 @@ async fn main() {
         .set_transport(transport)
         .expect("set_transport failed!");
 
-    let account_config = AccountConfig::new("7002", "7002", "127.0.0.1:5000");
+    let account_config1 = AccountConfig::new("7002", "7002", "127.0.0.1:5000");
 
     let instance = instance.start().expect("start failed!");
 
-    let mut account_added = instance
-        .add_account(account_config)
+    let mut account_added1 = instance
+        .add_account(account_config1)
         .await
         .expect("add_account failed!");
 
-    let incoming_call = account_added.next_call().await;
-
-    println!("answering...");
-
-    let call = incoming_call.answer_ok().await.expect("answer failed!");
-
     let mem_pool = PjsuaMemoryPool::new(10000, 10000).expect("Failed to create memory pool");
 
-    let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(None, 8000, 1, 160, &mem_pool)
-        .expect("Failed to create sink buffer media port");
+    for _ in 0..100 {
+        let incoming_call1 = account_added1.next_call().await.expect("next_call failed!");
 
-    let _media_port_connected = call
-        .connect_with_sink_media_port(sink_buffer_media_port, &mem_pool)
-        .expect("Failed to connect sink buffer media port");
+        println!("answering...");
 
-    call.await_hangup().await.expect("await_hangup failed!");
+        let call1 = incoming_call1
+            .answer_session_progress()
+            .await
+            .expect("answer failed!");
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
+
+        let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(None, 8000, 1, 160, &mem_pool)
+            .expect("Failed to create sink buffer media port");
+
+        let media_port_connected = call1
+            .connect_with_sink_media_port(sink_buffer_media_port, &mem_pool)
+            .expect("Failed to connect sink buffer media port");
+
+        run_call(media_port_connected, &call1).await;
+
+        call1.await_hangup().await.expect("await_hangup failed!");
+    }
 }

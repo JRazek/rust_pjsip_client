@@ -9,3 +9,4 @@ pub mod pjsua_stream_buffer_media_port;
 pub mod transport;
 pub mod tokio_utils;
 pub mod pjsua_conf_bridge;
+pub mod pjmedia_port_audio_sink;

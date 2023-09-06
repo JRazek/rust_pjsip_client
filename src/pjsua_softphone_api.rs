@@ -9,7 +9,7 @@ use std::rc::Rc;
 use crate::{pjsua_account_config, pjsua_config, transport};
 
 pub(crate) struct PjsuaInstanceHandle {
-    _not_send_sync: PhantomData<*const ()>,
+    _not_send_sync: PhantomData<*mut ()>,
     _private: (),
 }
 

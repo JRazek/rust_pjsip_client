@@ -1,4 +1,4 @@
-use super::pjsua_call::PjsuaCall;
+use super::pjsua_call::PjsuaCallSetup;
 use super::pjsua_conf_bridge::ConfBrigdgeHandle;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 use crate::error::get_error_as_result;
@@ -18,14 +18,10 @@ extern "C" fn pjmedia_mem_capture_eof_cb(
 ) {
     use cb_data::EofCb2UserData;
 
-    eprintln!("entering pjmedia_mem_capture_eof_cb2...");
-
     let user_data = user_data as *mut EofCb2UserData;
     ffi_assert!(!user_data.is_null());
 
     let buffer_in = unsafe { &(*user_data).buffer };
-
-    println!("capture_eof in_size: {}", buffer_in.len());
 
     let buffer_out = buffer_in.iter().cloned().collect::<Box<[u8]>>();
     let channel_tx = unsafe { &mut (*user_data).tx_channel };
@@ -76,7 +72,7 @@ impl<'a> PjsuaSinkBufferMediaPortAdded<'a> {
 
     pub(crate) fn connect(
         self,
-        call: &'a PjsuaCall,
+        call: &'a PjsuaCallSetup,
     ) -> Result<PjsuaSinkBufferMediaPortConnected<'a>, PjsuaError> {
         PjsuaSinkBufferMediaPortConnected::new(self, call)
     }
@@ -100,13 +96,13 @@ impl<'a> Drop for PjsuaSinkBufferMediaPortAdded<'a> {
 
 pub struct PjsuaSinkBufferMediaPortConnected<'a> {
     added_media_port: PjsuaSinkBufferMediaPortAdded<'a>,
-    call: &'a PjsuaCall<'a>,
+    call: &'a PjsuaCallSetup<'a>,
 }
 
 impl<'a> PjsuaSinkBufferMediaPortConnected<'a> {
     pub(crate) fn new(
         added_media_port: PjsuaSinkBufferMediaPortAdded<'a>,
-        call: &'a PjsuaCall,
+        call: &'a PjsuaCallSetup,
     ) -> Result<PjsuaSinkBufferMediaPortConnected<'a>, PjsuaError> {
         unsafe {
             let status =

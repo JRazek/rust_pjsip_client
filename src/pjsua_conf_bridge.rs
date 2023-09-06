@@ -2,9 +2,6 @@
 
 use super::error::PjsuaError;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
-use super::pjsua_sink_buffer_media_port::{
-    PjsuaSinkBufferMediaPort, PjsuaSinkBufferMediaPortAdded,
-};
 use super::pjsua_softphone_api;
 use std::marker::PhantomData;
 use std::sync::Mutex;
@@ -16,6 +13,26 @@ pub(crate) struct ConfBrigdgeHandle {
     _private: (),
     _pjsua_instance_handle: Rc<pjsua_softphone_api::PjsuaInstanceHandle>,
 }
+
+pub trait SinkMediaPort<'a, C: SinkMediaPortConnected + 'a, A: SinkMediaPortAdded<'a, C> + 'a> {
+    fn add(
+        self,
+        mem_pool: &'a PjsuaMemoryPool,
+        conf_bridge_handle: &'a ConfBrigdgeHandle,
+    ) -> Result<A, PjsuaError>;
+}
+
+pub trait SinkMediaPortAdded<'a, C: SinkMediaPortConnected + 'a>:
+    AsMut<pjsua::pjmedia_port>
+{
+    fn connect_call(
+        &mut self,
+        mem_pool: &PjsuaMemoryPool,
+        conf_bridge_handle: &ConfBrigdgeHandle,
+    ) -> Result<C, PjsuaError>;
+}
+
+pub trait SinkMediaPortConnected: AsMut<pjsua::pjmedia_port> {}
 
 impl ConfBrigdgeHandle {
     pub fn get_instance(
@@ -41,14 +58,13 @@ impl ConfBrigdgeHandle {
         None
     }
 
-    pub fn add_sink<'a>(
-        &'a self,
-        pjsua_sink_buffer_media_port: PjsuaSinkBufferMediaPort<'a>,
-        mem_pool: &PjsuaMemoryPool,
-    ) -> Result<PjsuaSinkBufferMediaPortAdded<'a>, PjsuaError> {
-        let added_port =
-            PjsuaSinkBufferMediaPortAdded::new(pjsua_sink_buffer_media_port, mem_pool, self);
-
-        added_port
-    }
+    //    pub fn add_sink<'a, A: SinkMediaPortAdded + 'a, S: SinkMediaPort<'a, A> + 'a>(
+    //        &'a self,
+    //        pjsua_sink_buffer_media_port: S,
+    //        mem_pool: &PjsuaMemoryPool,
+    //    ) -> Result<A, PjsuaError> {
+    //        let added_port = pjsua_sink_buffer_media_port.add(mem_pool, self)?;
+    //
+    //        Ok(added_port)
+    //    }
 }
