@@ -14,7 +14,7 @@ use super::pjsua_sink_buffer_media_port::{
 };
 
 pub(crate) mod answer_code {
-    pub trait AnswerCode {
+    pub trait AnswerCode: Send + 'static {
         fn as_u32(&self) -> u32;
     }
 
@@ -123,8 +123,15 @@ impl<'a> PjsuaCallHandle<'a> {
         })
     }
 
-    fn answer(&self, answer_code: impl answer_code::AnswerCode) -> Result<(), PjsuaError> {
-        accept_incoming(self.call_id, answer_code)?;
+    async fn answer(&self, answer_code: impl answer_code::AnswerCode) -> Result<(), PjsuaError> {
+        let call_id = self.call_id;
+        spawn_blocking_pjsua(move || {
+            accept_incoming(call_id, answer_code)?;
+
+            Ok::<(), PjsuaError>(())
+        })
+        .await
+        .unwrap()?;
 
         Ok(())
     }
@@ -139,6 +146,8 @@ impl<'a> Drop for PjsuaCallHandle<'a> {
         //on_state_changed. Then it follows that user_data will no longer be used.
 
         hangup_call(self.call_id).expect("Failed to reject incoming call");
+
+        eprintln!("Dropped PjsuaCallHandle");
     }
 }
 
@@ -185,8 +194,11 @@ type CallStateReceiver = tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, Stat
 use super::pjmedia_port_audio_sink::*;
 
 async fn await_state(state_rx: &mut CallStateReceiver, state: State) -> Result<(), PjsuaError> {
+    eprintln!("Awaiting state: {:?}", state);
+
     if let Some((_, state_recv)) = state_rx.recv().await {
         if state_recv == state {
+            eprintln!("State received: {:?}", state);
             return Ok(());
         }
     }
@@ -212,13 +224,7 @@ impl<'a> PjsuaCallSetup<'a> {
             .take()
             .expect("Call handle is None!");
 
-        spawn_blocking_pjsua(move || {
-            accept_incoming(call_handle.call_id, answer_code::SessionProgress)?;
-
-            Ok::<(), PjsuaError>(())
-        })
-        .await
-        .unwrap()?;
+        call_handle.answer(answer_code::SessionProgress).await?;
 
         await_state(&mut call_handle.state_changed_rx, State::PjsipInvStateEarly).await?;
 
@@ -272,7 +278,7 @@ impl<'a> PjsuaCall<'a> {
     ) -> Result<PjsuaCall<'a>, PjsuaError> {
         let mut call_handle = pjsua_call_setup.call_handle;
 
-        call_handle.answer(answer_code::Ok)?;
+        call_handle.answer(answer_code::Ok).await?;
 
         await_state(
             &mut call_handle.state_changed_rx,
@@ -301,6 +307,10 @@ impl<'a> PjsuaCall<'a> {
 
         Ok(())
     }
+
+    //    pub async fn recv(&mut self) -> Result<Vec<u8>, PjsuaError> {
+    //        self.media_sink.recv().await
+    //    }
 }
 
 impl<'a> PjsuaCall<'a> {

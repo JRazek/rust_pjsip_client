@@ -13,7 +13,18 @@ use pjsip_client::pjsua_sink_buffer_media_port::{
 use pjsip_client::pjmedia_port_audio_sink::CustomSinkMediaPort;
 
 async fn run_call<'a>(pjsua_call: PjsuaCall<'a>) {
-    pjsua_call.await_hangup().await.expect("hangup failed!");
+    tokio::select! {
+        res = pjsua_call.await_hangup() => {
+            if let Err(res) = res {
+                println!("call ended with error: {:?}", res);
+            } else {
+                println!("call ended");
+            }
+        }
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(120)) => {
+            println!("call timed out");
+        }
+    }
 }
 
 #[tokio::main]
