@@ -1,5 +1,5 @@
 use super::pjsua_call::PjsuaCallSetup;
-use super::pjsua_conf_bridge::ConfBrigdgeHandle;
+use super::pjsua_conf_bridge::ConfBridgeHandle;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 use crate::error::get_error_as_result;
 use crate::ffi_assert;
@@ -45,14 +45,14 @@ pub struct PjsuaSinkBufferMediaPort<'a> {
 pub struct PjsuaSinkBufferMediaPortAdded<'a> {
     port_slot: pjsua::pjsua_conf_port_id,
     media_port: PjsuaSinkBufferMediaPort<'a>,
-    _brigde: &'a ConfBrigdgeHandle,
+    _brigde: &'a ConfBridgeHandle,
 }
 
 impl<'a> PjsuaSinkBufferMediaPortAdded<'a> {
     pub(crate) fn new(
         media_port: PjsuaSinkBufferMediaPort<'a>,
         mem_pool: &PjsuaMemoryPool,
-        bridge: &'a ConfBrigdgeHandle,
+        bridge: &'a ConfBridgeHandle,
     ) -> Result<PjsuaSinkBufferMediaPortAdded<'a>, PjsuaError> {
         let mut port_slot = pjsua::pjsua_conf_port_id::default();
 

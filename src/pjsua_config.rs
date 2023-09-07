@@ -126,8 +126,8 @@ impl Default for LogConfig {
                 Box::new(MaybeUninit::<pjsua::pjsua_logging_config>::zeroed().assume_init());
             pjsua::pjsua_logging_config_default(log_cfg.as_mut());
 
-            log_cfg.console_level = 1000;
-            log_cfg.level = 1000;
+            log_cfg.console_level = 1;
+            log_cfg.level = 1;
 
             Self {
                 logging_cfg: log_cfg,

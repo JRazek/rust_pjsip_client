@@ -5,18 +5,15 @@ use pjsip_client::transport::PjsuaTransport;
 
 use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 
-use pjsip_client::pjsua_call::PjsuaCallSetup;
+use pjsip_client::pjsua_call::{PjsuaCall, PjsuaCallSetup};
 use pjsip_client::pjsua_sink_buffer_media_port::{
     PjsuaSinkBufferMediaPort, PjsuaSinkBufferMediaPortConnected,
 };
 
-async fn run_call<'a>(
-    sink_buffer_media_port: PjsuaSinkBufferMediaPortConnected<'a>,
-    pjsua_call: &'a PjsuaCallSetup<'a>,
-) {
-    while let Some(frame) = sink_buffer_media_port.get_frame().await {
-        println!("frame: {:?}", frame);
-    }
+use pjsip_client::pjmedia_port_audio_sink::CustomSinkMediaPort;
+
+async fn run_call<'a>(pjsua_call: PjsuaCall<'a>) {
+    pjsua_call.await_hangup().await.expect("hangup failed!");
 }
 
 #[tokio::main]
@@ -45,27 +42,21 @@ async fn main() {
 
     let mem_pool = PjsuaMemoryPool::new(10000, 10000).expect("Failed to create memory pool");
 
-    for _ in 0..100 {
-        let incoming_call1 = account_added1.next_call().await.expect("next_call failed!");
-
+    while let Ok(incoming_call) = account_added1.next_call().await {
         println!("answering...");
 
-        let call1 = incoming_call1
+        let call = incoming_call
             .answer_session_progress()
             .await
             .expect("answer failed!");
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
+        let sink_buffer_media_port = CustomSinkMediaPort::new(8000, 1, 160, &mem_pool);
 
-        let sink_buffer_media_port = PjsuaSinkBufferMediaPort::new(None, 8000, 1, 160, &mem_pool)
-            .expect("Failed to create sink buffer media port");
+        let call = call
+            .connect(sink_buffer_media_port, &mem_pool)
+            .await
+            .expect("connect failed!");
 
-        let media_port_connected = call1
-            .connect_with_sink_media_port(sink_buffer_media_port, &mem_pool)
-            .expect("Failed to connect sink buffer media port");
-
-        run_call(media_port_connected, &call1).await;
-
-        call1.await_hangup().await.expect("await_hangup failed!");
+        run_call(call).await;
     }
 }

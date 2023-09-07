@@ -1,8 +1,35 @@
 use std::ffi::CStr;
+use std::ptr::write;
 
 #[derive(Debug)]
 pub struct PjsuaMemoryPool {
     pjsua_pool: *mut pjsua::pj_pool_t,
+}
+
+pub struct PoolBuffer<'a, T: Sized + Default> {
+    pool_buffer: &'a mut [T],
+    objects_count: usize,
+    mem_pool: &'a PjsuaMemoryPool,
+}
+
+impl<'a, T: Sized + Default> PoolBuffer<'a, T> {
+    pub fn len(&self) -> usize {
+        self.objects_count
+    }
+}
+
+impl<'a, T: Sized + Default> std::ops::Index<usize> for PoolBuffer<'a, T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.pool_buffer[index]
+    }
+}
+
+impl<'a, T: Sized + Default> AsMut<T> for PoolBuffer<'a, T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut self.pool_buffer[0]
+    }
 }
 
 impl PjsuaMemoryPool {
@@ -19,6 +46,25 @@ impl PjsuaMemoryPool {
 
     pub fn raw_handle(&self) -> *mut pjsua::pj_pool_t {
         self.pjsua_pool
+    }
+
+    pub fn alloc<'a, T: Sized + Default>(&'a self, objects_count: usize) -> PoolBuffer<'a, T> {
+        unsafe {
+            let elem_size = std::mem::size_of::<T>();
+
+            let buffer = pjsua::pj_pool_calloc(self.pjsua_pool, objects_count, elem_size) as *mut T;
+
+            write(buffer, T::default());
+
+            let pool_buffer =
+                std::slice::from_raw_parts_mut::<'a>(buffer, objects_count * elem_size);
+
+            PoolBuffer {
+                pool_buffer,
+                objects_count,
+                mem_pool: self,
+            }
+        }
     }
 }
 

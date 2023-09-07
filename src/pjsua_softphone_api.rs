@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::sync::Mutex;
 
 use super::error::get_error_as_result;
-use super::pjsua_conf_bridge::ConfBrigdgeHandle;
+use super::pjsua_conf_bridge::ConfBridgeHandle;
 use std::rc::Rc;
 
 use crate::{pjsua_account_config, pjsua_config, transport};
@@ -73,7 +73,7 @@ pub struct PjsuaInstanceStarted {
     _pjsua_config: pjsua_config::PjsuaConfig,
     _transport: transport::PjsuaTransport,
     _handle: Rc<PjsuaInstanceHandle>,
-    bridge: ConfBrigdgeHandle,
+    bridge: ConfBridgeHandle,
 }
 
 impl PjsuaInstanceInitTransportConfigured {
@@ -83,7 +83,7 @@ impl PjsuaInstanceInitTransportConfigured {
         }
 
         let handle = Rc::new(self.pjsua_instance_init.handle);
-        let bridge = ConfBrigdgeHandle::get_instance(handle.clone()).unwrap();
+        let bridge = ConfBridgeHandle::get_instance(handle.clone()).unwrap();
 
         let instance_started = PjsuaInstanceStarted {
             _log_config: self.pjsua_instance_init.log_config,
@@ -151,7 +151,7 @@ impl PjsuaInstanceStarted {
         account_added
     }
 
-    pub(crate) fn get_bridge<'a>(&'a self) -> &'a ConfBrigdgeHandle {
+    pub(crate) fn get_bridge<'a>(&'a self) -> &'a ConfBridgeHandle {
         &self.bridge
     }
 }
