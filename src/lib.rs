@@ -11,3 +11,4 @@ pub mod tokio_utils;
 pub mod pjsua_conf_bridge;
 pub mod pjmedia_port_audio_sink;
 pub mod pj_types;
+pub mod notify_channel;

@@ -14,7 +14,7 @@ pub struct NotifyReceiverHandle<'a, T: Send> {
 }
 
 impl<T: Send> NotifyReceiver<T> {
-    async fn recv(&mut self) -> Option<NotifyReceiverHandle<T>> {
+    pub async fn recv(&mut self) -> Option<NotifyReceiverHandle<T>> {
         let (value, end_tx) = self.rx.recv().await?;
 
         Some(NotifyReceiverHandle {
@@ -25,15 +25,29 @@ impl<T: Send> NotifyReceiver<T> {
     }
 }
 
-impl<T: Send> AsMut<NotifyReceiver<T>> for NotifyReceiver<T> {
-    fn as_mut(&mut self) -> &mut NotifyReceiver<T> {
-        self
+impl<T: Send> AsMut<T> for NotifyReceiverHandle<'_, T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut self.value
     }
 }
 
-impl<T: Send> AsRef<NotifyReceiver<T>> for NotifyReceiver<T> {
-    fn as_ref(&self) -> &NotifyReceiver<T> {
-        self
+impl<T: Send> AsRef<T> for NotifyReceiverHandle<'_, T> {
+    fn as_ref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T: Send> std::ops::Deref for NotifyReceiverHandle<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T: Send> std::ops::DerefMut for NotifyReceiverHandle<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
     }
 }
 

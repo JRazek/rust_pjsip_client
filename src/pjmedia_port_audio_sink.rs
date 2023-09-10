@@ -12,8 +12,6 @@ unsafe extern "C" fn custom_port_put_frame(
     port: *mut pjsua::pjmedia_port,
     frame: *mut pjsua::pjmedia_frame,
 ) -> pjsua::pj_status_t {
-    let custom_port = port as *mut CustomSinkMediaPortAdded;
-
     static mut COUNTER: AtomicU32 = AtomicU32::new(0);
 
     let count = unsafe { COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) };
@@ -31,6 +29,28 @@ unsafe extern "C" fn custom_port_put_frame(
 
     let frame_data =
         unsafe { std::slice::from_raw_parts((*frame).buf as *const u8, (*frame).size as usize) };
+
+    if count % 100 == 0 {
+        println!("custom_port_put_frame: frame data: {:?}", frame_data);
+    }
+
+    return 0; // or appropriate status
+}
+
+unsafe extern "C" fn custom_port_get_frame(
+    port: *mut pjsua::pjmedia_port,
+    frame: *mut pjsua::pjmedia_frame,
+) -> pjsua::pj_status_t {
+    static mut COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    let count = unsafe { COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) };
+
+    if count % 100 == 0 {
+        println!(
+            "custom_port_get_frame: frame buffer size: {:?}",
+            (*frame).size
+        );
+    }
 
     return 0; // or appropriate status
 }
@@ -59,13 +79,13 @@ impl<'a> CustomSinkMediaPort<'a> {
         );
 
         base.put_frame = Some(custom_port_put_frame);
+        base.get_frame = Some(custom_port_get_frame);
         base.info = port_info;
 
         CustomSinkMediaPort { base, _name: name }
     }
 
     fn rand_signature() -> u32 {
-        use std::sync::atomic::AtomicU32;
         static mut SIGNATURE: AtomicU32 = AtomicU32::new(0);
 
         unsafe { SIGNATURE.fetch_add(1, std::sync::atomic::Ordering::SeqCst) }
@@ -114,6 +134,8 @@ pub struct CustomSinkMediaPortAdded<'a> {
     port_slot: pjsua::pjsua_conf_port_id,
 }
 
+use super::pjsua_call::PjsuaCallHandle;
+
 impl<'a> CustomSinkMediaPortAdded<'a> {
     pub(crate) fn new(
         media_port: CustomSinkMediaPort<'a>,
@@ -124,7 +146,10 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
         let mut port_slot = pjsua::pjsua_conf_port_id::default();
 
         unsafe {
-            pjsua::pjsua_conf_add_port(mem_pool.raw_handle(), base.as_mut(), &mut port_slot);
+            let status =
+                pjsua::pjsua_conf_add_port(mem_pool.raw_handle(), base.as_mut(), &mut port_slot);
+            get_error_as_result(status)?;
+            eprintln!("added port to conf bridge: {:?}", port_slot);
         }
 
         base.put_frame = Some(custom_port_put_frame);
@@ -138,7 +163,7 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
 
     pub(crate) fn connect(
         self,
-        pjsua_call: &PjsuaCallSetup,
+        pjsua_call: &PjsuaCallHandle,
     ) -> Result<CustomSinkMediaPortConnected<'a>, PjsuaError> {
         let connected = CustomSinkMediaPortConnected::new(self, pjsua_call)?;
 
@@ -160,7 +185,7 @@ pub struct CustomSinkMediaPortConnected<'a> {
 impl<'a> CustomSinkMediaPortConnected<'a> {
     pub fn new(
         added_media_port: CustomSinkMediaPortAdded<'a>,
-        pjsua_call: &PjsuaCallSetup,
+        pjsua_call: &PjsuaCallHandle,
     ) -> Result<Self, PjsuaError> {
         unsafe {
             pjsua::pjsua_conf_connect(pjsua_call.get_conf_port_slot()?, added_media_port.port_slot);

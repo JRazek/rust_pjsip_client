@@ -81,14 +81,18 @@ macro_rules! ffi_assert {
     };
 }
 
-pub fn ffi_assert_res<T: Debug, E: Debug>(res: Result<T, E>) -> T {
-    ffi_assert!(res.is_ok(), "{:?}", res);
+pub fn ffi_assert_res<T, E: Debug>(res: Result<T, E>) -> T {
+    unsafe {
+        ffi_assert!(res.is_ok(), "{:?}", res.unwrap_err_unchecked());
 
-    res.unwrap()
+        res.unwrap_unchecked()
+    }
 }
 
 pub fn ffi_assert_option<T: Debug>(res: Option<T>) -> T {
-    ffi_assert!(res.is_some(), "{:?}", res);
+    unsafe {
+        ffi_assert!(res.is_some(), "{:?}", res);
 
-    res.unwrap()
+        res.unwrap_unchecked()
+    }
 }

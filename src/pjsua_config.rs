@@ -3,6 +3,7 @@ use crate::{
     ffi_assert,
     pjsua_account_config::cb_user_data::{AccountConfigUserData, OnIncomingCallSendData},
     pjsua_call::cb_user_data::StateChangedUserData,
+    pjsua_call::PjsipInvState,
 };
 
 use std::mem::MaybeUninit;
@@ -62,7 +63,7 @@ pub unsafe extern "C" fn on_call_state(
     let mut info = MaybeUninit::<pjsua::pjsua_call_info>::zeroed().assume_init();
     pjsua::pjsua_call_get_info(call_id, &mut info);
 
-    let state = info.state.try_into();
+    let state: Result<PjsipInvState, ()> = info.state.try_into();
 
     eprintln!("on_call_state callback: {:?}", state);
 
@@ -93,6 +94,25 @@ unsafe extern "C" fn on_create_media_transport(
     base_tp
 }
 
+unsafe extern "C" fn on_call_media_state(call_id: pjsua::pjsua_call_id) {
+    use super::pjsua_call;
+
+    let state_changed_user_data =
+        pjsua::pjsua_call_get_user_data(call_id) as *mut StateChangedUserData;
+
+    let call_info = ffi_assert_res(pjsua_call::get_call_info(call_id));
+
+    let status: pjsua_call::CallMediaStatus = ffi_assert_res(call_info.media_status.try_into());
+
+    eprintln!("on_call_media_state: {:?}", status);
+
+    let res = (*state_changed_user_data)
+        .on_media_status_changed_tx
+        .blocking_send(status);
+
+    ffi_assert_res(res);
+}
+
 pub struct PjsuaConfig {
     pjsua_config: Box<pjsua::pjsua_config>,
 }
@@ -108,6 +128,7 @@ impl PjsuaConfig {
             pjsua_config.cb.on_incoming_call = Some(on_incoming_call);
             pjsua_config.cb.on_call_state = Some(on_call_state);
             pjsua_config.cb.on_media_event = Some(on_media_event);
+            pjsua_config.cb.on_call_media_state = Some(on_call_media_state);
             pjsua_config.cb.on_create_media_transport = Some(on_create_media_transport);
 
             PjsuaConfig { pjsua_config }

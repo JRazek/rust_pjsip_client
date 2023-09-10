@@ -69,7 +69,9 @@ fn hangup_call(call_id: pjsua::pjsua_call_id) -> Result<(), PjsuaError> {
 }
 
 #[allow(dead_code)]
-fn get_call_info(call_id: pjsua::pjsua_call_id) -> Result<pjsua::pjsua_call_info, PjsuaError> {
+pub(crate) fn get_call_info(
+    call_id: pjsua::pjsua_call_id,
+) -> Result<pjsua::pjsua_call_info, PjsuaError> {
     let call_info = unsafe {
         let mut call_info = MaybeUninit::<pjsua::pjsua_call_info>::zeroed().assume_init();
         let status = pjsua::pjsua_call_get_info(call_id, &mut call_info);
@@ -87,11 +89,14 @@ fn is_call_active(call_id: pjsua::pjsua_call_id) -> bool {
     active != 0
 }
 
+use std::cell::RefCell;
+
 pub struct PjsuaCallHandle<'a> {
     call_id: pjsua::pjsua_call_id,
     user_data: Box<cb_user_data::StateChangedUserData>,
     _pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
     state_changed_rx: CallStateReceiver,
+    call_media_status_changed_rx: RefCell<NotifyReceiver<CallMediaStatus>>,
 }
 
 impl<'a> PjsuaCallHandle<'a> {
@@ -100,9 +105,11 @@ impl<'a> PjsuaCallHandle<'a> {
         pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
     ) -> Result<Self, PjsuaError> {
         let (state_changed_tx, state_changed_rx) = tokio::sync::mpsc::channel(3);
+        let (call_media_status_changed_tx, call_media_status_changed_rx) = notify_channel();
 
         let mut user_data = Box::new(cb_user_data::StateChangedUserData {
             on_state_changed_tx: state_changed_tx,
+            on_media_status_changed_tx: call_media_status_changed_tx,
         });
 
         let raw_user_data = user_data.as_mut() as *mut cb_user_data::StateChangedUserData;
@@ -119,8 +126,21 @@ impl<'a> PjsuaCallHandle<'a> {
             call_id,
             user_data,
             state_changed_rx,
+            call_media_status_changed_rx: RefCell::new(call_media_status_changed_rx),
             _pjsua_instance_started: pjsua_instance_started,
         })
+    }
+
+    pub(crate) fn get_conf_port_slot(&self) -> Result<pjsua::pjsua_conf_port_id, PjsuaError> {
+        let conf_slot = unsafe { pjsua::pjsua_call_get_conf_port(self.call_id) };
+
+        match conf_slot {
+            pjsua::pjsua_invalid_id_const__PJSUA_INVALID_ID => Err(PjsuaError {
+                code: -1,
+                message: "Invalid conf slot".to_string(),
+            }),
+            _ => Ok(conf_slot),
+        }
     }
 
     async fn answer(&self, answer_code: impl answer_code::AnswerCode) -> Result<(), PjsuaError> {
@@ -189,15 +209,39 @@ impl<'a> PjsuaIncomingCall<'a> {
     }
 }
 
-type CallStateReceiver = tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, State)>;
+type CallStateReceiver = tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, PjsipInvState)>;
 
 use super::pjmedia_port_audio_sink::*;
 
-async fn await_state(state_rx: &mut CallStateReceiver, state: State) -> Result<(), PjsuaError> {
+use crate::notify_channel::{notify_channel, NotifyReceiver, NotifySender};
+
+async fn await_call_state(
+    state_rx: &mut CallStateReceiver,
+    state: PjsipInvState,
+) -> Result<(), PjsuaError> {
     eprintln!("Awaiting state: {:?}", state);
 
     if let Some((_, state_recv)) = state_rx.recv().await {
         if state_recv == state {
+            eprintln!("State received: {:?}", state);
+            return Ok(());
+        }
+    }
+
+    return Err(PjsuaError {
+        code: -1,
+        message: "Unexpected state".to_string(),
+    });
+}
+
+async fn await_call_media_state(
+    status_rx: &mut NotifyReceiver<CallMediaStatus>,
+    state: CallMediaStatus,
+) -> Result<(), PjsuaError> {
+    eprintln!("Awaiting state: {:?}", state);
+
+    if let Some(state_recv) = status_rx.recv().await {
+        if *state_recv == state {
             eprintln!("State received: {:?}", state);
             return Ok(());
         }
@@ -224,9 +268,7 @@ impl<'a> PjsuaCallSetup<'a> {
             .take()
             .expect("Call handle is None!");
 
-        call_handle.answer(answer_code::SessionProgress).await?;
-
-        await_state(&mut call_handle.state_changed_rx, State::PjsipInvStateEarly).await?;
+        call_handle.answer(answer_code::Ok).await?;
 
         let call = Self {
             call_handle,
@@ -235,18 +277,6 @@ impl<'a> PjsuaCallSetup<'a> {
         };
 
         Ok(call)
-    }
-
-    pub(crate) fn get_conf_port_slot(&self) -> Result<pjsua::pjsua_conf_port_id, PjsuaError> {
-        let conf_slot = unsafe { pjsua::pjsua_call_get_conf_port(self.call_handle.call_id) };
-
-        match conf_slot {
-            pjsua::pjsua_invalid_id_const__PJSUA_INVALID_ID => Err(PjsuaError {
-                code: -1,
-                message: "Invalid conf slot".to_string(),
-            }),
-            _ => Ok(conf_slot),
-        }
     }
 
     pub async fn hangup(self) {}
@@ -258,11 +288,44 @@ impl<'a> PjsuaCallSetup<'a> {
     ) -> Result<PjsuaCall<'a>, PjsuaError> {
         let bridge = self.pjsua_instance_started.get_bridge();
 
-        let call = bridge
-            .setup_media(custom_media_port, self, mem_pool)
+        let call_handle = self.call_handle;
+
+        let mut call_media_status_changed_rx_borrow =
+            call_handle.call_media_status_changed_rx.borrow_mut();
+
+        let recv_state = call_media_status_changed_rx_borrow.recv().await.unwrap();
+
+        match *recv_state {
+            CallMediaStatus::Active => {}
+            _ => {
+                return Err(PjsuaError {
+                    code: -1,
+                    message: "Unexpected state".to_string(),
+                });
+            }
+        }
+
+        let port_connected = bridge
+            .setup_media(custom_media_port, &call_handle, mem_pool)
             .await?;
 
-        Ok(call)
+        drop(recv_state);
+        drop(call_media_status_changed_rx_borrow);
+
+        let mut pjsua_call = PjsuaCall::new(call_handle, port_connected).await?;
+
+        await_call_state(
+            &mut pjsua_call.call_handle.state_changed_rx,
+            PjsipInvState::Connecting,
+        )
+        .await?;
+        await_call_state(
+            &mut pjsua_call.call_handle.state_changed_rx,
+            PjsipInvState::Confirmed,
+        )
+        .await?;
+
+        Ok(pjsua_call)
     }
 }
 
@@ -273,24 +336,10 @@ pub struct PjsuaCall<'a> {
 
 impl<'a> PjsuaCall<'a> {
     pub async fn new(
-        pjsua_call_setup: PjsuaCallSetup<'a>,
+        pjsua_call_setup: PjsuaCallHandle<'a>,
         media_sink: CustomSinkMediaPortConnected<'a>,
     ) -> Result<PjsuaCall<'a>, PjsuaError> {
-        let mut call_handle = pjsua_call_setup.call_handle;
-
-        call_handle.answer(answer_code::Ok).await?;
-
-        await_state(
-            &mut call_handle.state_changed_rx,
-            State::PjsipInvStateConnecting,
-        )
-        .await?;
-
-        await_state(
-            &mut call_handle.state_changed_rx,
-            State::PjsipInvStateConfirmed,
-        )
-        .await?;
+        let call_handle = pjsua_call_setup;
 
         Ok(Self {
             media_sink,
@@ -299,18 +348,14 @@ impl<'a> PjsuaCall<'a> {
     }
 
     pub async fn await_hangup(mut self) -> Result<(), PjsuaError> {
-        await_state(
+        await_call_state(
             &mut self.call_handle.state_changed_rx,
-            State::PjsipInvStateDisconnected,
+            PjsipInvState::Disconnected,
         )
         .await?;
 
         Ok(())
     }
-
-    //    pub async fn recv(&mut self) -> Result<Vec<u8>, PjsuaError> {
-    //        self.media_sink.recv().await
-    //    }
 }
 
 impl<'a> PjsuaCall<'a> {
@@ -333,39 +378,69 @@ impl std::fmt::Display for RemoteAlreadyHangUpError {
 impl std::error::Error for RemoteAlreadyHangUpError {}
 
 pub(crate) mod cb_user_data {
-    use super::State;
+    use super::CallMediaStatus;
+    use super::NotifySender;
+    use super::PjsipInvState;
     use tokio::sync::mpsc::Sender;
 
     #[allow(unused_parens)]
-    pub(crate) type OnStateChangedSendData = (pjsua::pjsua_call_id, State);
+    pub(crate) type OnStateChangedSendData = (pjsua::pjsua_call_id, PjsipInvState);
 
     pub struct StateChangedUserData {
         pub(crate) on_state_changed_tx: Sender<OnStateChangedSendData>,
+        pub(crate) on_media_status_changed_tx: NotifySender<CallMediaStatus>,
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum State {
-    PjsipInvStateNull,
-    PjsipInvStateCalling,
-    PjsipInvStateIncoming,
-    PjsipInvStateEarly,
-    PjsipInvStateConnecting,
-    PjsipInvStateConfirmed,
-    PjsipInvStateDisconnected,
+pub enum PjsipInvState {
+    Null,
+    Calling,
+    Incoming,
+    Early,
+    Connecting,
+    Confirmed,
+    Disconnected,
 }
 
-impl TryFrom<u32> for State {
+impl TryFrom<u32> for PjsipInvState {
     type Error = ();
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(State::PjsipInvStateNull),
-            1 => Ok(State::PjsipInvStateCalling),
-            2 => Ok(State::PjsipInvStateIncoming),
-            3 => Ok(State::PjsipInvStateEarly),
-            4 => Ok(State::PjsipInvStateConnecting),
-            5 => Ok(State::PjsipInvStateConfirmed),
-            6 => Ok(State::PjsipInvStateDisconnected),
+            0 => Ok(PjsipInvState::Null),
+            1 => Ok(PjsipInvState::Calling),
+            2 => Ok(PjsipInvState::Incoming),
+            3 => Ok(PjsipInvState::Early),
+            4 => Ok(PjsipInvState::Connecting),
+            5 => Ok(PjsipInvState::Confirmed),
+            6 => Ok(PjsipInvState::Disconnected),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CallMediaStatus {
+    None,
+    Active,
+    LocalHold,
+    RemoteHold,
+    Error,
+}
+
+impl TryFrom<u32> for CallMediaStatus {
+    type Error = ();
+    fn try_from(value: u32) -> Result<Self, <CallMediaStatus as TryFrom<u32>>::Error> {
+        match value {
+            pjsua::pjsua_call_media_status_PJSUA_CALL_MEDIA_NONE => Ok(CallMediaStatus::None),
+            pjsua::pjsua_call_media_status_PJSUA_CALL_MEDIA_ACTIVE => Ok(CallMediaStatus::Active),
+            pjsua::pjsua_call_media_status_PJSUA_CALL_MEDIA_LOCAL_HOLD => {
+                Ok(CallMediaStatus::LocalHold)
+            }
+            pjsua::pjsua_call_media_status_PJSUA_CALL_MEDIA_REMOTE_HOLD => {
+                Ok(CallMediaStatus::RemoteHold)
+            }
+            pjsua::pjsua_call_media_status_PJSUA_CALL_MEDIA_ERROR => Ok(CallMediaStatus::Error),
             _ => Err(()),
         }
     }

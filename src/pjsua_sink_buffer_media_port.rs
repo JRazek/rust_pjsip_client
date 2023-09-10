@@ -57,11 +57,11 @@ impl<'a> PjsuaSinkBufferMediaPortAdded<'a> {
         let mut port_slot = pjsua::pjsua_conf_port_id::default();
 
         unsafe {
-            pjsua::pjsua_conf_add_port(
-                mem_pool.raw_handle(),
-                media_port.raw_handle(),
-                &mut port_slot,
-            );
+            //            pjsua::pjsua_conf_add_port(
+            //                mem_pool.raw_handle(),
+            //                media_port.raw_handle(),
+            //                &mut port_slot,
+            //            );
         }
         Ok(PjsuaSinkBufferMediaPortAdded {
             port_slot,
@@ -105,10 +105,10 @@ impl<'a> PjsuaSinkBufferMediaPortConnected<'a> {
         call: &'a PjsuaCallSetup,
     ) -> Result<PjsuaSinkBufferMediaPortConnected<'a>, PjsuaError> {
         unsafe {
-            let status =
-                pjsua::pjsua_conf_connect(call.get_conf_port_slot()?, added_media_port.port_slot());
-
-            get_error_as_result(status)?;
+            //            let status =
+            //                pjsua::pjsua_conf_connect(call.get_conf_port_slot()?, added_media_port.port_slot());
+//
+//            get_error_as_result(status)?;
         }
 
         Ok(PjsuaSinkBufferMediaPortConnected {
@@ -134,19 +134,19 @@ impl<'a> Drop for PjsuaSinkBufferMediaPortConnected<'a> {
     fn drop(&mut self) {
         eprintln!("dropping PjsuaSinkBufferMediaPortConnected...");
         unsafe {
-            if let Ok(port_id) = self.call.get_conf_port_slot() {
-                //may be managed by the call itself. Should Connected by RAII or just depend on
-                //Call?
-
-                let status = get_error_as_result(pjsua::pjsua_conf_disconnect(
-                    port_id,
-                    self.added_media_port.port_slot(),
-                ));
-
-                if let Err(e) = status {
-                    eprintln!("error disconnecting port: {:?}", e);
-                }
-            }
+            //            if let Ok(port_id) = self.call.get_conf_port_slot() {
+            //                //may be managed by the call itself. Should Connected by RAII or just depend on
+            //                //Call?
+            //
+            //                let status = get_error_as_result(pjsua::pjsua_conf_disconnect(
+            //                    port_id,
+            //                    self.added_media_port.port_slot(),
+            //                ));
+            //
+            //                if let Err(e) = status {
+            //                    eprintln!("error disconnecting port: {:?}", e);
+            //                }
+            //            }
         }
     }
 }

@@ -18,7 +18,7 @@ pub(crate) struct ConfBridgeHandle {
 
 pub trait SinkMediaPortConnected: AsMut<pjsua::pjmedia_port> {}
 
-use super::pjsua_call::{PjsuaCall, PjsuaCallSetup};
+use super::pjsua_call::{PjsuaCallHandle, PjsuaCallSetup};
 
 impl ConfBridgeHandle {
     pub fn get_instance(
@@ -45,18 +45,16 @@ impl ConfBridgeHandle {
     }
 
     //currently hard coded, later to be used with trait
-    pub async fn setup_media<'a>(
+    pub(crate) async fn setup_media<'a>(
         &'a self,
         custom_media_port: CustomSinkMediaPort<'a>,
-        pjsua_call: PjsuaCallSetup<'a>,
+        pjsua_call: &PjsuaCallHandle<'a>,
         mem_pool: &'a PjsuaMemoryPool,
-    ) -> Result<PjsuaCall<'a>, PjsuaError> {
+    ) -> Result<CustomSinkMediaPortConnected<'a>, PjsuaError> {
         let connected_port = custom_media_port
             .add(mem_pool, self)?
             .connect(&pjsua_call)?;
 
-        let pjsua_call = PjsuaCall::new(pjsua_call, connected_port).await?;
-
-        Ok(pjsua_call)
+        Ok(connected_port)
     }
 }
