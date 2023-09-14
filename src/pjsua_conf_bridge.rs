@@ -45,16 +45,14 @@ impl ConfBridgeHandle {
     }
 
     //currently hard coded, later to be used with trait
-    pub(crate) async fn setup_media<'a>(
+    pub(crate) async fn setup_sink_media<'a>(
         &'a self,
         custom_media_port: CustomSinkMediaPort<'a>,
         pjsua_call: &PjsuaCallHandle<'a>,
         mem_pool: &'a PjsuaMemoryPool,
-    ) -> Result<CustomSinkMediaPortConnected<'a>, PjsuaError> {
-        let connected_port = custom_media_port
-            .add(mem_pool, self)?
-            .connect(&pjsua_call)?;
+    ) -> Result<CustomSinkMediaPortAdded<'a>, PjsuaError> {
+        let added_port = custom_media_port.add(mem_pool, self)?;
 
-        Ok(connected_port)
+        Ok(added_port)
     }
 }

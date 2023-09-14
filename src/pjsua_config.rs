@@ -1,5 +1,6 @@
 use crate::{
     error::ffi_assert_res,
+    error::get_error_as_result,
     ffi_assert,
     pjsua_account_config::cb_user_data::{AccountConfigUserData, OnIncomingCallSendData},
     pjsua_call::cb_user_data::StateChangedUserData,
@@ -102,15 +103,46 @@ unsafe extern "C" fn on_call_media_state(call_id: pjsua::pjsua_call_id) {
 
     let call_info = ffi_assert_res(pjsua_call::get_call_info(call_id));
 
-    let status: pjsua_call::CallMediaStatus = ffi_assert_res(call_info.media_status.try_into());
+    let media_status: pjsua_call::CallMediaStatus =
+        ffi_assert_res(call_info.media_status.try_into());
+    let call_state: pjsua_call::PjsipInvState = ffi_assert_res(call_info.state.try_into());
 
-    eprintln!("on_call_media_state: {:?}", status);
+    eprintln!(
+        "on_call_media_state: {:?} for call: {:?}",
+        media_status, call_id
+    );
 
-    let res = (*state_changed_user_data)
-        .on_media_status_changed_tx
-        .blocking_send(status);
+    if pjsua_call::CallMediaStatus::Active == media_status
+        && pjsua_call::PjsipInvState::Confirmed == call_state
+    {
+        if let Some(call_media_data_rx) = &mut (*state_changed_user_data).call_media_data_rx {
+            match call_media_data_rx.try_recv() {
+                Ok(data) => {
+                    let call_conf_port = ffi_assert_res(pjsua_call::get_call_conf_port(call_id));
 
-    ffi_assert_res(res);
+                    data.sinks_slots.iter().for_each(|added_port_slot| {
+                        eprintln!(
+                            "Connecting {:?} to {:?}...",
+                            call_conf_port, *added_port_slot
+                        );
+
+                        let status = get_error_as_result(pjsua::pjsua_conf_connect(
+                            call_conf_port,
+                            *added_port_slot,
+                        ));
+
+                        ffi_assert_res(status);
+
+                        eprintln!(
+                            "connected conf bridge slots {:?} -> {:?}",
+                            call_conf_port, *added_port_slot
+                        )
+                    });
+                }
+                _ => {}
+            };
+        }
+    }
 }
 
 pub struct PjsuaConfig {

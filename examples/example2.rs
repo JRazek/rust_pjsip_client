@@ -5,27 +5,7 @@ use pjsip_client::transport::PjsuaTransport;
 
 use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 
-use pjsip_client::pjsua_call::{PjsuaCall, PjsuaCallSetup};
-use pjsip_client::pjsua_sink_buffer_media_port::{
-    PjsuaSinkBufferMediaPort, PjsuaSinkBufferMediaPortConnected,
-};
-
 use pjsip_client::pjmedia_port_audio_sink::CustomSinkMediaPort;
-
-async fn run_call<'a>(pjsua_call: PjsuaCall<'a>) {
-    tokio::select! {
-        res = pjsua_call.await_hangup() => {
-            if let Err(res) = res {
-                println!("call ended with error: {:?}", res);
-            } else {
-                println!("call ended");
-            }
-        }
-        _ = tokio::time::sleep(tokio::time::Duration::from_secs(120)) => {
-            println!("call timed out");
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() {
@@ -53,21 +33,20 @@ async fn main() {
 
     let mem_pool = PjsuaMemoryPool::new(10000, 10000).expect("Failed to create memory pool");
 
-    while let Ok(incoming_call) = account_added1.next_call().await {
-        println!("answering...");
+    let incoming_call = account_added1.next_call().await.expect("test");
+    println!("answering...");
 
-        let call = incoming_call
-            .answer_session_progress()
-            .await
-            .expect("answer failed!");
+    let call = incoming_call
+        .answer_session_progress()
+        .await
+        .expect("answer failed!");
 
-        let sink_buffer_media_port = CustomSinkMediaPort::new(8000, 1, 160, &mem_pool);
+    let sink_buffer_media_port = CustomSinkMediaPort::new(8000, 1, 160, &mem_pool);
 
-        let call = call
-            .connect(sink_buffer_media_port, &mem_pool)
-            .await
-            .expect("connect failed!");
+    let call = call
+        .add(sink_buffer_media_port, &mem_pool)
+        .await
+        .expect("connect failed!");
 
-        run_call(call).await;
-    }
+    call.await_hangup().await.expect("error");
 }

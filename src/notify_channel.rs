@@ -68,8 +68,11 @@ impl<T: Send> NotifySender<T> {
         value: T,
     ) -> Result<(), tokio_mpsc::error::SendError<(T, tokio_oneshot::Sender<()>)>> {
         let (end_tx, end_rx) = tokio_oneshot::channel();
+
+        eprintln!("notify_sender: blocking_send");
         self.tx.blocking_send((value, end_tx))?;
 
+        eprintln!("notify_sender: blocking_recv");
         end_rx.blocking_recv().unwrap();
 
         Ok(())

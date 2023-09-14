@@ -9,10 +9,6 @@ use std::mem::MaybeUninit;
 
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 
-use super::pjsua_sink_buffer_media_port::{
-    PjsuaSinkBufferMediaPort, PjsuaSinkBufferMediaPortConnected,
-};
-
 pub(crate) mod answer_code {
     pub trait AnswerCode: Send + 'static {
         fn as_u32(&self) -> u32;
@@ -89,14 +85,26 @@ fn is_call_active(call_id: pjsua::pjsua_call_id) -> bool {
     active != 0
 }
 
-use std::cell::RefCell;
+pub(crate) fn get_call_conf_port(call_id: pjsua::pjsua_call_id) -> Result<i32, PjsuaError> {
+    let conf_slot = unsafe { pjsua::pjsua_call_get_conf_port(call_id) };
+
+    match conf_slot {
+        pjsua::pjsua_invalid_id_const__PJSUA_INVALID_ID => Err(PjsuaError {
+            code: -1,
+            message: "Invalid conf slot".to_string(),
+        }),
+        _ => Ok(conf_slot),
+    }
+}
+
+use tokio::sync::oneshot as tokio_oneshot;
 
 pub struct PjsuaCallHandle<'a> {
     call_id: pjsua::pjsua_call_id,
     user_data: Box<cb_user_data::StateChangedUserData>,
     _pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
     state_changed_rx: CallStateReceiver,
-    call_media_status_changed_rx: RefCell<NotifyReceiver<CallMediaStatus>>,
+    call_media_data_tx: Option<tokio_oneshot::Sender<CallMediaData>>,
 }
 
 impl<'a> PjsuaCallHandle<'a> {
@@ -105,11 +113,11 @@ impl<'a> PjsuaCallHandle<'a> {
         pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
     ) -> Result<Self, PjsuaError> {
         let (state_changed_tx, state_changed_rx) = tokio::sync::mpsc::channel(3);
-        let (call_media_status_changed_tx, call_media_status_changed_rx) = notify_channel();
+        let (call_media_data_tx, call_media_data_rx) = tokio_oneshot::channel();
 
         let mut user_data = Box::new(cb_user_data::StateChangedUserData {
             on_state_changed_tx: state_changed_tx,
-            on_media_status_changed_tx: call_media_status_changed_tx,
+            call_media_data_rx: Some(call_media_data_rx),
         });
 
         let raw_user_data = user_data.as_mut() as *mut cb_user_data::StateChangedUserData;
@@ -126,21 +134,13 @@ impl<'a> PjsuaCallHandle<'a> {
             call_id,
             user_data,
             state_changed_rx,
-            call_media_status_changed_rx: RefCell::new(call_media_status_changed_rx),
+            call_media_data_tx: Some(call_media_data_tx),
             _pjsua_instance_started: pjsua_instance_started,
         })
     }
 
     pub(crate) fn get_conf_port_slot(&self) -> Result<pjsua::pjsua_conf_port_id, PjsuaError> {
-        let conf_slot = unsafe { pjsua::pjsua_call_get_conf_port(self.call_id) };
-
-        match conf_slot {
-            pjsua::pjsua_invalid_id_const__PJSUA_INVALID_ID => Err(PjsuaError {
-                code: -1,
-                message: "Invalid conf slot".to_string(),
-            }),
-            _ => Ok(conf_slot),
-        }
+        get_call_conf_port(self.call_id)
     }
 
     async fn answer(&self, answer_code: impl answer_code::AnswerCode) -> Result<(), PjsuaError> {
@@ -263,12 +263,10 @@ impl<'a> PjsuaCallSetup<'a> {
     async fn new(
         mut incoming_call: PjsuaIncomingCall<'a>,
     ) -> Result<PjsuaCallSetup<'a>, PjsuaError> {
-        let mut call_handle = incoming_call
+        let call_handle = incoming_call
             .call_handle
             .take()
             .expect("Call handle is None!");
-
-        call_handle.answer(answer_code::Ok).await?;
 
         let call = Self {
             call_handle,
@@ -281,38 +279,37 @@ impl<'a> PjsuaCallSetup<'a> {
 
     pub async fn hangup(self) {}
 
-    pub async fn connect(
+    pub async fn add(
         self,
         custom_media_port: CustomSinkMediaPort<'a>,
         mem_pool: &'a PjsuaMemoryPool,
     ) -> Result<PjsuaCall<'a>, PjsuaError> {
+        eprintln!("PjcuaCallSetup::add called");
+
         let bridge = self.pjsua_instance_started.get_bridge();
 
-        let call_handle = self.call_handle;
+        let mut call_handle = self.call_handle;
 
-        let mut call_media_status_changed_rx_borrow =
-            call_handle.call_media_status_changed_rx.borrow_mut();
-
-        let recv_state = call_media_status_changed_rx_borrow.recv().await.unwrap();
-
-        match *recv_state {
-            CallMediaStatus::Active => {}
-            _ => {
-                return Err(PjsuaError {
-                    code: -1,
-                    message: "Unexpected state".to_string(),
-                });
-            }
-        }
-
-        let port_connected = bridge
-            .setup_media(custom_media_port, &call_handle, mem_pool)
+        let port_added = bridge
+            .setup_sink_media(custom_media_port, &call_handle, mem_pool)
             .await?;
 
-        drop(recv_state);
-        drop(call_media_status_changed_rx_borrow);
+        call_handle
+            .call_media_data_tx
+            .take()
+            .unwrap()
+            .send(CallMediaData {
+                sinks_slots: vec![port_added.port_slot()],
+            })
+            .unwrap();
 
-        let mut pjsua_call = PjsuaCall::new(call_handle, port_connected).await?;
+        eprintln!("Answering call...");
+
+        call_handle.answer(answer_code::Ok).await?;
+
+        eprintln!("Call answered");
+
+        let mut pjsua_call = PjsuaCall::new(call_handle, port_added).await?;
 
         await_call_state(
             &mut pjsua_call.call_handle.state_changed_rx,
@@ -330,14 +327,14 @@ impl<'a> PjsuaCallSetup<'a> {
 }
 
 pub struct PjsuaCall<'a> {
-    media_sink: CustomSinkMediaPortConnected<'a>,
+    media_sink: CustomSinkMediaPortAdded<'a>,
     call_handle: PjsuaCallHandle<'a>,
 }
 
 impl<'a> PjsuaCall<'a> {
     pub async fn new(
         pjsua_call_setup: PjsuaCallHandle<'a>,
-        media_sink: CustomSinkMediaPortConnected<'a>,
+        media_sink: CustomSinkMediaPortAdded<'a>,
     ) -> Result<PjsuaCall<'a>, PjsuaError> {
         let call_handle = pjsua_call_setup;
 
@@ -378,8 +375,8 @@ impl std::fmt::Display for RemoteAlreadyHangUpError {
 impl std::error::Error for RemoteAlreadyHangUpError {}
 
 pub(crate) mod cb_user_data {
-    use super::CallMediaStatus;
-    use super::NotifySender;
+    use super::tokio_oneshot;
+    use super::CallMediaData;
     use super::PjsipInvState;
     use tokio::sync::mpsc::Sender;
 
@@ -388,7 +385,7 @@ pub(crate) mod cb_user_data {
 
     pub struct StateChangedUserData {
         pub(crate) on_state_changed_tx: Sender<OnStateChangedSendData>,
-        pub(crate) on_media_status_changed_tx: NotifySender<CallMediaStatus>,
+        pub(crate) call_media_data_rx: Option<tokio_oneshot::Receiver<CallMediaData>>,
     }
 }
 
@@ -426,6 +423,13 @@ pub enum CallMediaStatus {
     LocalHold,
     RemoteHold,
     Error,
+}
+
+use std::vec::Vec;
+
+#[derive(Debug)]
+pub struct CallMediaData {
+    pub sinks_slots: Vec<i32>,
 }
 
 impl TryFrom<u32> for CallMediaStatus {

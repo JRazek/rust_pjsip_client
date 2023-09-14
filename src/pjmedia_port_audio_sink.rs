@@ -2,7 +2,6 @@ use super::error::PjsuaError;
 use super::pjsua_conf_bridge::ConfBridgeHandle;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 use crate::error::get_error_as_result;
-use crate::pjsua_call::PjsuaCallSetup;
 
 use super::pj_types::PjString;
 
@@ -159,6 +158,10 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
             _conf_bridge: conf_bridge,
             port_slot,
         })
+    }
+
+    pub fn port_slot(&self) -> i32 {
+        self.port_slot
     }
 
     pub(crate) fn connect(
