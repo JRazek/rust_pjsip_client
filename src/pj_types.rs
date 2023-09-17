@@ -35,3 +35,26 @@ impl<'a> AsMut<pjsua::pj_str_t> for PjString<'a> {
     }
 }
 
+pub struct Frame {
+    data: Box<[u8]>,
+    time: std::time::Duration,
+}
+
+impl TryFrom<&mut pjsua::pjmedia_frame> for Frame {
+    type Error = ();
+
+    fn try_from(frame_raw: &mut pjsua::pjmedia_frame) -> Result<Self, Self::Error> {
+        let frame_data = unsafe {
+            std::slice::from_raw_parts(frame_raw.buf as *const u8, frame_raw.size as usize)
+        };
+
+        let frame_data = Box::from_iter(frame_data.iter().cloned());
+
+        //todo time
+
+        Ok(Frame {
+            data: frame_data,
+            time: time_duration,
+        })
+    }
+}

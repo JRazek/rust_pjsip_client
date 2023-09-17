@@ -5,7 +5,11 @@ use crate::error::get_error_as_result;
 
 use super::pj_types::PjString;
 
+use super::pj_types::Frame;
+
 use std::sync::atomic::AtomicU32;
+
+use tokio::sync::mpsc as tokio_mpsc;
 
 unsafe extern "C" fn custom_port_put_frame(
     port: *mut pjsua::pjmedia_port,
@@ -28,6 +32,15 @@ unsafe extern "C" fn custom_port_put_frame(
 
     let frame_data =
         unsafe { std::slice::from_raw_parts((*frame).buf as *const u8, (*frame).size as usize) };
+
+    let frame_data = Box::from_iter(frame_data.iter().cloned());
+
+    let media_port_data = unsafe { (*port).port_data.pdata as *mut MediaPortData };
+
+    (*media_port_data)
+        .frames_tx
+        .try_send(Frame { data: frame_data })
+        .unwrap();
 
     if count % 100 == 0 {
         println!("custom_port_put_frame: frame data: {:?}", frame_data);
@@ -52,6 +65,15 @@ unsafe extern "C" fn custom_port_get_frame(
     }
 
     return 0; // or appropriate status
+}
+
+unsafe extern "C" fn custom_port_on_destroy(port: *mut pjsua::pjmedia_port) -> pjsua::pj_status_t {
+    eprintln!("custom_port_on_destroy");
+    return 0; // or appropriate status
+}
+
+struct MediaPortData {
+    frames_tx: tokio_mpsc::Sender<Frame>,
 }
 
 pub struct CustomSinkMediaPort<'a> {
@@ -79,7 +101,14 @@ impl<'a> CustomSinkMediaPort<'a> {
 
         base.put_frame = Some(custom_port_put_frame);
         base.get_frame = Some(custom_port_get_frame);
+
         base.info = port_info;
+
+        let (frames_tx, frames_rx) = tokio_mpsc::channel(100);
+
+        base.port_data.pdata = Box::into_raw(Box::new(MediaPortData { frames_tx })) as *mut _;
+
+        base.on_destroy = Some(custom_port_on_destroy);
 
         CustomSinkMediaPort { base, _name: name }
     }
@@ -133,8 +162,6 @@ pub struct CustomSinkMediaPortAdded<'a> {
     port_slot: pjsua::pjsua_conf_port_id,
 }
 
-use super::pjsua_call::PjsuaCallHandle;
-
 impl<'a> CustomSinkMediaPortAdded<'a> {
     pub(crate) fn new(
         media_port: CustomSinkMediaPort<'a>,
@@ -163,38 +190,11 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
     pub fn port_slot(&self) -> i32 {
         self.port_slot
     }
-
-    pub(crate) fn connect(
-        self,
-        pjsua_call: &PjsuaCallHandle,
-    ) -> Result<CustomSinkMediaPortConnected<'a>, PjsuaError> {
-        let connected = CustomSinkMediaPortConnected::new(self, pjsua_call)?;
-
-        Ok(connected)
-    }
 }
 
 impl<'a> Drop for CustomSinkMediaPortAdded<'a> {
     fn drop(&mut self) {
         let status = unsafe { pjsua::pjmedia_port_destroy(self.base.as_mut()) };
         get_error_as_result(status).unwrap();
-    }
-}
-
-pub struct CustomSinkMediaPortConnected<'a> {
-    added_media_port: CustomSinkMediaPortAdded<'a>,
-}
-
-impl<'a> CustomSinkMediaPortConnected<'a> {
-    pub fn new(
-        added_media_port: CustomSinkMediaPortAdded<'a>,
-        pjsua_call: &PjsuaCallHandle,
-    ) -> Result<Self, PjsuaError> {
-        unsafe {
-            pjsua::pjsua_conf_connect(pjsua_call.get_conf_port_slot()?, added_media_port.port_slot);
-            pjsua::pjsua_conf_connect(added_media_port.port_slot, pjsua_call.get_conf_port_slot()?);
-        }
-
-        Ok(CustomSinkMediaPortConnected { added_media_port })
     }
 }
