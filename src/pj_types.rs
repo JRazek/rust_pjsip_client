@@ -5,7 +5,7 @@ use super::pjsua_memory_pool::{PjsuaMemoryPool, PoolBuffer};
 
 pub struct PjString<'a> {
     pj_str: pjsua::pj_str_t,
-    pool_buffer: PoolBuffer<'a, u8>,
+    _pool_buffer: PoolBuffer<'a, u8>,
 }
 
 impl<'a> PjString<'a> {
@@ -21,7 +21,7 @@ impl<'a> PjString<'a> {
 
         PjString {
             pj_str,
-            pool_buffer,
+            _pool_buffer: pool_buffer,
         }
     }
 }
@@ -39,24 +39,24 @@ impl<'a> AsMut<pjsua::pj_str_t> for PjString<'a> {
 }
 
 pub struct Frame {
-    data: Box<[u8]>,
-    time: std::time::Duration,
+    pub data: Box<[u8]>,
+    pub time: std::time::Duration,
 }
 
-impl TryFrom<&mut pjsua::pjmedia_frame> for Frame {
+impl TryFrom<&pjsua::pjmedia_frame> for Frame {
     type Error = PjsuaError;
 
-    fn try_from(frame_raw: &mut pjsua::pjmedia_frame) -> Result<Self, Self::Error> {
+    fn try_from(frame_raw: &pjsua::pjmedia_frame) -> Result<Self, Self::Error> {
         let frame_data = unsafe {
             std::slice::from_raw_parts(frame_raw.buf as *const u8, frame_raw.size as usize)
         };
 
         let frame_data = Box::from_iter(frame_data.iter().cloned());
-        let time_duration = pj_timestamp_to_duration(frame_raw.timestamp)?;
+        let time = pj_timestamp_to_duration(frame_raw.timestamp)?;
 
         Ok(Frame {
             data: frame_data,
-            time: time_duration,
+            time,
         })
     }
 }
@@ -66,10 +66,10 @@ pub(crate) fn pj_timestamp_to_duration(
 ) -> Result<std::time::Duration, PjsuaError> {
     assert!(pjsua::PJ_HAS_INT64 != 0);
 
-    let value = timestamp.u64_ as u64;
+    let value = unsafe { timestamp.u64_ as u64 };
 
     let freq = unsafe {
-        let mut freq: pjsua::pj_timestamp = unsafe { std::mem::zeroed() };
+        let mut freq: pjsua::pj_timestamp = std::mem::zeroed();
         get_error_as_result(pjsua::pj_get_timestamp_freq(&mut freq))?;
 
         freq.u64_ as u64
