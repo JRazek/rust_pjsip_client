@@ -1,3 +1,6 @@
+use crate::error::PjsuaError;
+
+use super::error::get_error_as_result;
 use super::pjsua_memory_pool::{PjsuaMemoryPool, PoolBuffer};
 
 pub struct PjString<'a> {
@@ -41,7 +44,7 @@ pub struct Frame {
 }
 
 impl TryFrom<&mut pjsua::pjmedia_frame> for Frame {
-    type Error = ();
+    type Error = PjsuaError;
 
     fn try_from(frame_raw: &mut pjsua::pjmedia_frame) -> Result<Self, Self::Error> {
         let frame_data = unsafe {
@@ -49,12 +52,40 @@ impl TryFrom<&mut pjsua::pjmedia_frame> for Frame {
         };
 
         let frame_data = Box::from_iter(frame_data.iter().cloned());
-
-        //todo time
+        let time_duration = pj_timestamp_to_duration(frame_raw.timestamp)?;
 
         Ok(Frame {
             data: frame_data,
             time: time_duration,
         })
     }
+}
+
+pub(crate) fn pj_timestamp_to_duration(
+    timestamp: pjsua::pj_timestamp,
+) -> Result<std::time::Duration, PjsuaError> {
+    assert!(pjsua::PJ_HAS_INT64 != 0);
+
+    let value = timestamp.u64_ as u64;
+
+    let freq = unsafe {
+        let mut freq: pjsua::pj_timestamp = unsafe { std::mem::zeroed() };
+        get_error_as_result(pjsua::pj_get_timestamp_freq(&mut freq))?;
+
+        freq.u64_ as u64
+    };
+
+    let duration = match freq {
+        1000 => std::time::Duration::from_millis(value),
+        1000000 => std::time::Duration::from_micros(value),
+        1000000000 => std::time::Duration::from_nanos(value),
+        _ => {
+            return Err(PjsuaError {
+                code: -1,
+                message: "Unknown frequency in pj_timestamp!".to_string(),
+            })
+        }
+    };
+
+    Ok(duration)
 }
