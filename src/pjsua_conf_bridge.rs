@@ -48,7 +48,7 @@ impl ConfBridgeHandle {
     pub(crate) async fn setup_sink_media<'a>(
         &'a self,
         custom_media_port: CustomSinkMediaPort<'a>,
-        pjsua_call: &PjsuaCallHandle<'a>,
+        _pjsua_call: &PjsuaCallHandle<'a>,
         mem_pool: &'a PjsuaMemoryPool,
     ) -> Result<CustomSinkMediaPortAdded<'a>, PjsuaError> {
         let added_port = custom_media_port.add(mem_pool, self)?;

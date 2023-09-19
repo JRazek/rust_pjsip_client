@@ -33,12 +33,14 @@ unsafe extern "C" fn custom_port_put_frame(
 
     let media_port_data = unsafe { (*port).port_data.pdata as *mut MediaPortData };
 
-    let type_ = unsafe { (*frame).type_ };
+    let frame_type = unsafe { (*frame).type_ };
     let bit_info = unsafe { (*frame).bit_info };
 
     assert_eq!(bit_info, 0);
-
-    eprintln!("custom_port_put_frame: frame type: {:?}", type_);
+    assert_eq!(
+        frame_type,
+        pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO
+    );
 
     let frame = ffi_assert_res(Frame::try_from(&*frame));
 
@@ -72,6 +74,7 @@ struct MediaPortData {
 
 pub struct CustomSinkMediaPort<'a> {
     base: Box<pjsua::pjmedia_port>,
+    _format: Box<pjsua::pjmedia_format>,
     _name: PjString<'a>,
 }
 
@@ -85,39 +88,46 @@ impl CustomSinkMediaPortRx {
     }
 }
 
+const BITS_PER_SAMPLE: u32 = 16;
+
 impl<'a> CustomSinkMediaPort<'a> {
     pub fn new(
         sample_rate: u32,
         channels_count: usize,
         samples_per_frame: u32,
         mem_pool: &'a PjsuaMemoryPool,
-    ) -> (Self, CustomSinkMediaPortRx) {
+    ) -> Result<(Self, CustomSinkMediaPortRx), PjsuaError> {
         let mut base: Box<pjsua::pjmedia_port> = Box::new(unsafe { std::mem::zeroed() });
 
         let name = PjString::alloc("CustomMediaPort", &mem_pool);
 
-        let port_info = Self::port_info(
+        let format = Box::new(Self::port_format(
             sample_rate,
             channels_count,
             samples_per_frame,
-            name.as_ref(),
-        );
+        ));
+
+        let port_info = unsafe { Self::port_info(format.as_ref(), name.as_ref()) };
 
         base.put_frame = Some(custom_port_put_frame);
         base.get_frame = Some(custom_port_get_frame);
 
-        base.info = port_info;
+        base.info = port_info?;
 
-        let (frames_tx, frames_rx) = tokio_mpsc::channel(100);
+        let (frames_tx, frames_rx) = tokio_mpsc::channel(512);
 
         base.port_data.pdata = Box::into_raw(Box::new(MediaPortData { frames_tx })) as *mut _;
 
         base.on_destroy = Some(custom_port_on_destroy);
 
-        (
-            CustomSinkMediaPort { base, _name: name },
+        Ok((
+            CustomSinkMediaPort {
+                base,
+                _name: name,
+                _format: format,
+            },
             CustomSinkMediaPortRx { frames_rx },
-        )
+        ))
     }
 
     fn rand_signature() -> u32 {
@@ -126,12 +136,10 @@ impl<'a> CustomSinkMediaPort<'a> {
         unsafe { SIGNATURE.fetch_add(1, std::sync::atomic::Ordering::SeqCst) }
     }
 
-    fn port_info(
-        sample_rate: u32,
-        channels_count: usize,
-        samples_per_frame: u32,
-        name: &pjsua::pj_str_t,
-    ) -> pjsua::pjmedia_port_info {
+    unsafe fn port_info(
+        format: *const pjsua::pjmedia_format,
+        name: *const pjsua::pj_str_t,
+    ) -> Result<pjsua::pjmedia_port_info, PjsuaError> {
         let mut port_info: pjsua::pjmedia_port_info = unsafe { std::mem::zeroed() };
 
         let signature = Self::rand_signature();
@@ -140,21 +148,55 @@ impl<'a> CustomSinkMediaPort<'a> {
         //https://github.com/chakrit/pjsip/blob/b0af6c8fc8ed97bb03d3afa4ab42c24f46a9212b/pjmedia/src/pjmedia/port.c#L33
         //https://github.com/pjsip/pjproject/blob/01d37bf15a9121e6e78afe41a5c3ef4fa2ae3308/pjsip-apps/src/samples/playsine.c#L140C5-L140C27
         unsafe {
-            pjsua::pjmedia_port_info_init(
+            let status = get_error_as_result(pjsua::pjmedia_port_info_init2(
                 &mut port_info,
                 name,
                 signature,
-                sample_rate,
-                channels_count as u32,
-                16,
-                samples_per_frame,
-            );
+                pjsua::pjmedia_dir_PJMEDIA_DIR_ENCODING_DECODING,
+                format,
+            ));
+
+            status?;
         }
 
         eprintln!("fmt.type: {}", port_info.fmt.type_);
         eprintln!("fmt.type_detail: {}", port_info.fmt.detail_type);
 
-        port_info
+        Ok(port_info)
+    }
+
+    pub(crate) fn port_format(
+        sample_rate: u32,
+        channels_count: usize,
+        samples_per_frame: u32,
+    ) -> pjsua::pjmedia_format {
+        let mut format: pjsua::pjmedia_format = unsafe { std::mem::zeroed() };
+
+        const FORMAT_ID: u32 = pjsua::pjmedia_format_id_PJMEDIA_FORMAT_L16;
+
+        format.id = FORMAT_ID;
+        format.type_ = pjsua::pjmedia_type_PJMEDIA_TYPE_AUDIO;
+        format.detail_type = pjsua::pjmedia_format_detail_type_PJMEDIA_FORMAT_DETAIL_AUDIO;
+
+        let frame_time_usec =
+            samples_per_frame as u64 * 1_000_000 / channels_count as u64 / sample_rate as u64;
+
+        let avg_bps = sample_rate * channels_count as u32 * BITS_PER_SAMPLE;
+
+        //TODO: value that is set here, is not visible in
+        //format.det.aud!
+        unsafe {
+            let det = &mut format.det.aud;
+
+            det.clock_rate = sample_rate;
+            det.channel_count = channels_count as u32;
+            det.bits_per_sample = BITS_PER_SAMPLE;
+            det.frame_time_usec = frame_time_usec as u32;
+            det.avg_bps = avg_bps;
+            det.max_bps = avg_bps;
+        }
+
+        format
     }
 
     pub(crate) fn add(

@@ -39,7 +39,7 @@ impl<'a> AsMut<pjsua::pj_str_t> for PjString<'a> {
 }
 
 pub struct Frame {
-    pub data: Box<[u8]>,
+    pub data: Box<[u16]>,
     pub time: std::time::Duration,
 }
 
@@ -47,9 +47,12 @@ impl TryFrom<&pjsua::pjmedia_frame> for Frame {
     type Error = PjsuaError;
 
     fn try_from(frame_raw: &pjsua::pjmedia_frame) -> Result<Self, Self::Error> {
-        let frame_data = unsafe {
-            std::slice::from_raw_parts(frame_raw.buf as *const u8, frame_raw.size as usize)
-        };
+        type SampleType = u16;
+
+        let buffer_size = frame_raw.size / std::mem::size_of::<SampleType>() as usize;
+
+        let frame_data =
+            unsafe { std::slice::from_raw_parts(frame_raw.buf as *const SampleType, buffer_size) };
 
         let frame_data = Box::from_iter(frame_data.iter().cloned());
         let time = pj_timestamp_to_duration(frame_raw.timestamp)?;
@@ -66,8 +69,9 @@ pub(crate) fn pj_timestamp_to_duration(
 ) -> Result<std::time::Duration, PjsuaError> {
     assert!(pjsua::PJ_HAS_INT64 != 0);
 
-    let value = unsafe { timestamp.u64_ as u64 };
-
+    //TODO:
+    //make try to adjust the timing somehow.
+    //you have the source locally. Debug it.
     let freq = unsafe {
         let mut freq: pjsua::pj_timestamp = std::mem::zeroed();
         get_error_as_result(pjsua::pj_get_timestamp_freq(&mut freq))?;
@@ -75,10 +79,12 @@ pub(crate) fn pj_timestamp_to_duration(
         freq.u64_ as u64
     };
 
+    let value = unsafe { timestamp.u64_ as u64 };
+
     let duration = match freq {
         1000 => std::time::Duration::from_millis(value),
-        1000000 => std::time::Duration::from_micros(value),
-        1000000000 => std::time::Duration::from_nanos(value),
+        1000_000 => std::time::Duration::from_micros(value),
+        1000_000_000 => std::time::Duration::from_nanos(value),
         _ => {
             return Err(PjsuaError {
                 code: -1,
