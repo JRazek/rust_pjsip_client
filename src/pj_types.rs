@@ -1,4 +1,5 @@
 use crate::error::PjsuaError;
+use crate::pjmedia_port_audio_sink::sample_duration;
 
 use super::error::get_error_as_result;
 use super::pjsua_memory_pool::{PjsuaMemoryPool, PoolBuffer};
@@ -43,55 +44,36 @@ pub struct Frame {
     pub time: std::time::Duration,
 }
 
-impl TryFrom<&pjsua::pjmedia_frame> for Frame {
-    type Error = PjsuaError;
-
-    fn try_from(frame_raw: &pjsua::pjmedia_frame) -> Result<Self, Self::Error> {
+impl Frame {
+    pub(crate) fn new(
+        frame_raw: &pjsua::pjmedia_frame,
+        sample_rate: u32,
+        channels_count: usize,
+    ) -> Result<Self, PjsuaError> {
         type SampleType = u16;
 
         let buffer_size = frame_raw.size / std::mem::size_of::<SampleType>() as usize;
 
         let frame_data =
             unsafe { std::slice::from_raw_parts(frame_raw.buf as *const SampleType, buffer_size) };
-
         let frame_data = Box::from_iter(frame_data.iter().cloned());
-        let time = pj_timestamp_to_duration(frame_raw.timestamp)?;
+
+        let timestamp0: pjsua::pj_timestamp = unsafe { std::mem::zeroed() };
+
+        let samples_elapsed = unsafe { get_samples_diff(timestamp0, frame_raw.timestamp) };
 
         Ok(Frame {
             data: frame_data,
-            time,
+            time: samples_elapsed * sample_duration(sample_rate, channels_count),
         })
     }
 }
 
-pub(crate) fn pj_timestamp_to_duration(
-    timestamp: pjsua::pj_timestamp,
-) -> Result<std::time::Duration, PjsuaError> {
-    assert!(pjsua::PJ_HAS_INT64 != 0);
+pub(crate) unsafe fn get_samples_diff(
+    timestamp1: pjsua::pj_timestamp,
+    timestamp2: pjsua::pj_timestamp,
+) -> u32 {
+    let samples_diff = pjsua::pj_elapsed_nanosec(&timestamp1, &timestamp2);
 
-    //TODO:
-    //make try to adjust the timing somehow.
-    //you have the source locally. Debug it.
-    let freq = unsafe {
-        let mut freq: pjsua::pj_timestamp = std::mem::zeroed();
-        get_error_as_result(pjsua::pj_get_timestamp_freq(&mut freq))?;
-
-        freq.u64_ as u64
-    };
-
-    let value = unsafe { timestamp.u64_ as u64 };
-
-    let duration = match freq {
-        1000 => std::time::Duration::from_millis(value),
-        1000_000 => std::time::Duration::from_micros(value),
-        1000_000_000 => std::time::Duration::from_nanos(value),
-        _ => {
-            return Err(PjsuaError {
-                code: -1,
-                message: "Unknown frequency in pj_timestamp!".to_string(),
-            })
-        }
-    };
-
-    Ok(duration)
+    samples_diff
 }

@@ -12,6 +12,12 @@ use std::sync::atomic::AtomicU32;
 
 use tokio::sync::mpsc as tokio_mpsc;
 
+pub(crate) fn sample_duration(sample_rate: u32, channels_count: usize) -> std::time::Duration {
+    let sample_time_usec = 1_000_000 / channels_count as u64 / sample_rate as u64;
+
+    std::time::Duration::from_micros(sample_time_usec)
+}
+
 unsafe extern "C" fn custom_port_put_frame(
     port: *mut pjsua::pjmedia_port,
     frame: *mut pjsua::pjmedia_frame,
@@ -32,6 +38,8 @@ unsafe extern "C" fn custom_port_put_frame(
     }
 
     let media_port_data = unsafe { (*port).port_data.pdata as *mut MediaPortData };
+    let sample_rate = (*media_port_data).sample_rate;
+    let channels_count = (*media_port_data).channels_count;
 
     let frame_type = unsafe { (*frame).type_ };
     let bit_info = unsafe { (*frame).bit_info };
@@ -42,7 +50,7 @@ unsafe extern "C" fn custom_port_put_frame(
         pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO
     );
 
-    let frame = ffi_assert_res(Frame::try_from(&*frame));
+    let frame = ffi_assert_res(Frame::new(&*frame, sample_rate, channels_count));
 
     if let Err(_) = (*media_port_data).frames_tx.try_send(frame) {
         eprintln!("Buffer full, dropping frame...");
@@ -70,6 +78,8 @@ unsafe extern "C" fn custom_port_on_destroy(_port: *mut pjsua::pjmedia_port) -> 
 
 struct MediaPortData {
     frames_tx: tokio_mpsc::Sender<Frame>,
+    sample_rate: u32,
+    channels_count: usize,
 }
 
 pub struct CustomSinkMediaPort<'a> {
@@ -116,7 +126,11 @@ impl<'a> CustomSinkMediaPort<'a> {
 
         let (frames_tx, frames_rx) = tokio_mpsc::channel(512);
 
-        base.port_data.pdata = Box::into_raw(Box::new(MediaPortData { frames_tx })) as *mut _;
+        base.port_data.pdata = Box::into_raw(Box::new(MediaPortData {
+            frames_tx,
+            sample_rate,
+            channels_count,
+        })) as *mut _;
 
         base.on_destroy = Some(custom_port_on_destroy);
 

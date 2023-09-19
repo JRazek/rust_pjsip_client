@@ -11,14 +11,12 @@ pub async fn recv_task(mut frames_rx: CustomSinkMediaPortRx) {
     let mut i = 0;
 
     while let Some(frame) = frames_rx.recv().await {
-        if i % 100 == 0 {
-            eprintln!(
-                "received frame #{}. Size: {}, time: {:?}",
-                i,
-                frame.data.len(),
-                frame.time
-            );
-        }
+        eprintln!(
+            "received frame #{}. Size: {}, time: {:?}",
+            i,
+            frame.data.len(),
+            frame.time
+        );
 
         i += 1;
     }
@@ -59,7 +57,7 @@ async fn main() {
         .expect("answer failed!");
 
     let (sink_buffer_media_port, frames_rx) =
-        CustomSinkMediaPort::new(8000, 1, 160, &mem_pool).expect("test");
+        CustomSinkMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
 
     let call = call
         .add(sink_buffer_media_port, &mem_pool)
