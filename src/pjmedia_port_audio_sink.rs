@@ -12,6 +12,25 @@ use std::sync::atomic::AtomicU32;
 
 use tokio::sync::mpsc as tokio_mpsc;
 
+fn perform_pjmedia_format_checks_zero_division(
+    samples_per_frame: u32,
+    audio_format_detail: &pjsua::pjmedia_audio_format_detail,
+) -> Result<(), PjsuaError> {
+    let port_ptime = samples_per_frame / audio_format_detail.channel_count * 1000
+        / audio_format_detail.clock_rate;
+
+    if port_ptime == 0 {
+        let message = format!("samples_per_frame is too low! port_ptime = samples_per_frame / channel_count * 1000 / clock_rate is 0! \
+                              Reference: https://github.com/pjsip/pjproject/blob/7ff31e311373dc81174a5cb24698da5377885897/pjmedia/src/pjmedia/conference.c#L265-L389. \
+                              Division by zero happens at conference.c:387 \
+                                          if (conf_ptime % port_ptime)") ;
+
+        return Err(PjsuaError { code: -1, message });
+    }
+
+    Ok(())
+}
+
 pub(crate) fn sample_duration(sample_rate: u32, channels_count: usize) -> std::time::Duration {
     let sample_time_usec = 1_000_000 / channels_count as u64 / sample_rate as u64;
 
@@ -115,7 +134,7 @@ impl<'a> CustomSinkMediaPort<'a> {
             sample_rate,
             channels_count,
             samples_per_frame,
-        ));
+        )?);
 
         let port_info = unsafe { Self::port_info(format.as_ref(), name.as_ref()) };
 
@@ -183,7 +202,7 @@ impl<'a> CustomSinkMediaPort<'a> {
         sample_rate: u32,
         channels_count: usize,
         samples_per_frame: u32,
-    ) -> pjsua::pjmedia_format {
+    ) -> Result<pjsua::pjmedia_format, PjsuaError> {
         let mut format: pjsua::pjmedia_format = unsafe { std::mem::zeroed() };
 
         const FORMAT_ID: u32 = pjsua::pjmedia_format_id_PJMEDIA_FORMAT_L16;
@@ -208,9 +227,11 @@ impl<'a> CustomSinkMediaPort<'a> {
             det.frame_time_usec = frame_time_usec as u32;
             det.avg_bps = avg_bps;
             det.max_bps = avg_bps;
+
+            perform_pjmedia_format_checks_zero_division(samples_per_frame, &det)?;
         }
 
-        format
+        Ok(format)
     }
 
     pub(crate) fn add(

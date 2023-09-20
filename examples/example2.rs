@@ -57,7 +57,7 @@ async fn main() {
         .expect("answer failed!");
 
     let (sink_buffer_media_port, frames_rx) =
-        CustomSinkMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
+        CustomSinkMediaPort::new(8000, 1, 800, &mem_pool).expect("test");
 
     let call = call
         .add(sink_buffer_media_port, &mem_pool)
