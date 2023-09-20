@@ -213,8 +213,6 @@ type CallStateReceiver = tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, Pjsi
 
 use super::pjmedia_port_audio_sink::*;
 
-use crate::notify_channel::{notify_channel, NotifyReceiver, NotifySender};
-
 async fn await_call_state(
     state_rx: &mut CallStateReceiver,
     state: PjsipInvState,
@@ -223,25 +221,6 @@ async fn await_call_state(
 
     if let Some((_, state_recv)) = state_rx.recv().await {
         if state_recv == state {
-            eprintln!("State received: {:?}", state);
-            return Ok(());
-        }
-    }
-
-    return Err(PjsuaError {
-        code: -1,
-        message: "Unexpected state".to_string(),
-    });
-}
-
-async fn await_call_media_state(
-    status_rx: &mut NotifyReceiver<CallMediaStatus>,
-    state: CallMediaStatus,
-) -> Result<(), PjsuaError> {
-    eprintln!("Awaiting state: {:?}", state);
-
-    if let Some(state_recv) = status_rx.recv().await {
-        if *state_recv == state {
             eprintln!("State received: {:?}", state);
             return Ok(());
         }
@@ -286,11 +265,10 @@ impl<'a> PjsuaCallSetup<'a> {
     ) -> Result<PjsuaCall<'a>, PjsuaError> {
         eprintln!("PjcuaCallSetup::add called");
 
-        let bridge = self.pjsua_instance_started.get_bridge();
-
         let mut call_handle = self.call_handle;
 
-        let port_added = bridge
+        let port_added = self
+            .pjsua_instance_started
             .setup_sink_media(custom_media_port, &call_handle, mem_pool)
             .await?;
 

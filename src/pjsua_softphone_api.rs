@@ -3,8 +3,6 @@ use std::marker::PhantomData;
 use std::sync::Mutex;
 
 use super::error::get_error_as_result;
-use super::pjsua_conf_bridge::ConfBridgeHandle;
-use std::rc::Rc;
 
 use crate::{pjsua_account_config, pjsua_config, transport};
 
@@ -72,8 +70,7 @@ pub struct PjsuaInstanceStarted {
     _log_config: pjsua_config::LogConfig,
     _pjsua_config: pjsua_config::PjsuaConfig,
     _transport: transport::PjsuaTransport,
-    _handle: Rc<PjsuaInstanceHandle>,
-    bridge: ConfBridgeHandle,
+    handle: PjsuaInstanceHandle,
 }
 
 impl PjsuaInstanceInitTransportConfigured {
@@ -82,15 +79,13 @@ impl PjsuaInstanceInitTransportConfigured {
             get_error_as_result(pjsua::pjsua_start())?;
         }
 
-        let handle = Rc::new(self.pjsua_instance_init.handle);
-        let bridge = ConfBridgeHandle::get_instance(handle.clone()).unwrap();
+        let handle = self.pjsua_instance_init.handle;
 
         let instance_started = PjsuaInstanceStarted {
             _log_config: self.pjsua_instance_init.log_config,
             _pjsua_config: self.pjsua_instance_init.pjsua_config,
             _transport: self.transport,
-            _handle: handle,
-            bridge,
+            handle,
         };
 
         Ok(instance_started)
@@ -139,6 +134,10 @@ impl PjsuaInstanceInit {
     }
 }
 
+use super::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortAdded};
+use super::pjsua_call::PjsuaCallHandle;
+use super::pjsua_memory_pool::PjsuaMemoryPool;
+
 impl PjsuaInstanceStarted {
     pub async fn add_account(
         &self,
@@ -151,8 +150,15 @@ impl PjsuaInstanceStarted {
         account_added
     }
 
-    pub(crate) fn get_bridge<'a>(&'a self) -> &'a ConfBridgeHandle {
-        &self.bridge
+    pub(crate) async fn setup_sink_media<'a>(
+        &'a self,
+        custom_media_port: CustomSinkMediaPort<'a>,
+        _pjsua_call: &PjsuaCallHandle<'a>,
+        mem_pool: &'a PjsuaMemoryPool,
+    ) -> Result<CustomSinkMediaPortAdded<'a>, PjsuaError> {
+        let added_port = custom_media_port.add(mem_pool, self)?;
+
+        Ok(added_port)
     }
 }
 

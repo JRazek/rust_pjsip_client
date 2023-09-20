@@ -1,5 +1,4 @@
 use super::error::PjsuaError;
-use super::pjsua_conf_bridge::ConfBridgeHandle;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 use crate::error::ffi_assert_res;
 use crate::error::get_error_as_result;
@@ -116,6 +115,8 @@ impl CustomSinkMediaPortRx {
         self.frames_rx.recv().await
     }
 }
+
+use super::pjsua_softphone_api::PjsuaInstanceStarted;
 
 const BITS_PER_SAMPLE: u32 = 16;
 
@@ -237,15 +238,15 @@ impl<'a> CustomSinkMediaPort<'a> {
     pub(crate) fn add(
         self,
         mem_pool: &'a PjsuaMemoryPool,
-        conf_bridge: &'a ConfBridgeHandle,
+        instance_started: &'a PjsuaInstanceStarted,
     ) -> Result<CustomSinkMediaPortAdded<'a>, PjsuaError> {
-        CustomSinkMediaPortAdded::new(self, mem_pool, conf_bridge)
+        CustomSinkMediaPortAdded::new(self, mem_pool, instance_started)
     }
 }
 
 pub struct CustomSinkMediaPortAdded<'a> {
     base: Box<pjsua::pjmedia_port>,
-    _conf_bridge: &'a ConfBridgeHandle,
+    pjsua_instance: &'a PjsuaInstanceStarted,
     port_slot: pjsua::pjsua_conf_port_id,
 }
 
@@ -253,7 +254,7 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
     pub(crate) fn new(
         media_port: CustomSinkMediaPort<'a>,
         mem_pool: &'a PjsuaMemoryPool,
-        conf_bridge: &'a ConfBridgeHandle,
+        pjsua_instance: &'a PjsuaInstanceStarted,
     ) -> Result<Self, PjsuaError> {
         let mut base = media_port.base;
         let mut port_slot = pjsua::pjsua_conf_port_id::default();
@@ -269,7 +270,7 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
 
         Ok(CustomSinkMediaPortAdded {
             base,
-            _conf_bridge: conf_bridge,
+            pjsua_instance,
             port_slot,
         })
     }
