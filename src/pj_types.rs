@@ -40,7 +40,7 @@ impl<'a> AsMut<pjsua::pj_str_t> for PjString<'a> {
 }
 
 pub struct Frame {
-    pub data: Box<[u16]>,
+    pub data: Box<[u8]>,
     pub time: std::time::Duration,
 }
 
@@ -50,7 +50,7 @@ impl Frame {
         sample_rate: u32,
         channels_count: usize,
     ) -> Result<Self, PjsuaError> {
-        type SampleType = u16;
+        type SampleType = u8;
 
         let buffer_size = frame_raw.size / std::mem::size_of::<SampleType>() as usize;
 

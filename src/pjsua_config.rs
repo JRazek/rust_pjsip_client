@@ -21,17 +21,11 @@ pub unsafe extern "C" fn on_incoming_call(
     let transport_info = rx_data.tp_info;
     let _transport = transport_info.transport.as_ref().unwrap();
 
-    let account_user_data = pjsua::pjsua_acc_get_user_data(acc_id) as *mut AccountConfigUserData;
-
-    ffi_assert!(
-        !account_user_data.is_null(),
-        "callback user data musn't be null!"
-    );
+    let account_user_data = pjsua::pjsua_acc_get_user_data(acc_id) as *const AccountConfigUserData;
 
     //user data should be valid, allocated ptr here due to ffi_assert!
     //also, since pjsua_acc_del is called on Drop in AccountConfigAdded, where this buffer is allocated,
     //also not that this value is not stored in reference/box due to aliasing invariants of Rust.
-    let account_user_data = account_user_data as *const AccountConfigUserData;
 
     ffi_assert!(
         !account_user_data.is_null(),
@@ -53,28 +47,27 @@ pub unsafe extern "C" fn on_call_state(
 ) {
     //    ffi_assert!(!pjsip_event.is_null(), "pjsip_event musn't be null!");
 
-    let state_changed_user_data =
-        pjsua::pjsua_call_get_user_data(call_id) as *mut StateChangedUserData;
+    //state_changed_user_data may me null when the on_incoming_call is called, but no
+    //OnIncomingCall instance is created.
 
-    ffi_assert!(
-        !state_changed_user_data.is_null(),
-        "user data musn't be null!"
-    );
+    if let Some(state_changed_user_data) =
+        (pjsua::pjsua_call_get_user_data(call_id) as *mut StateChangedUserData).as_mut()
+    {
+        let mut info = MaybeUninit::<pjsua::pjsua_call_info>::zeroed().assume_init();
+        pjsua::pjsua_call_get_info(call_id, &mut info);
 
-    let mut info = MaybeUninit::<pjsua::pjsua_call_info>::zeroed().assume_init();
-    pjsua::pjsua_call_get_info(call_id, &mut info);
+        let state: Result<PjsipInvState, ()> = info.state.try_into();
 
-    let state: Result<PjsipInvState, ()> = info.state.try_into();
+        eprintln!("on_call_state callback: {:?}", state);
 
-    eprintln!("on_call_state callback: {:?}", state);
+        let state = ffi_assert_res(state);
 
-    let state = ffi_assert_res(state);
+        let res = (*state_changed_user_data)
+            .on_state_changed_tx
+            .try_send((call_id, state));
 
-    let res = (*state_changed_user_data)
-        .on_state_changed_tx
-        .try_send((call_id, state));
-
-    ffi_assert_res(res);
+        ffi_assert_res(res);
+    }
 }
 
 unsafe extern "C" fn on_media_event(event: *mut pjsua::pjmedia_event) {
@@ -117,27 +110,30 @@ unsafe extern "C" fn on_call_media_state(call_id: pjsua::pjsua_call_id) {
     {
         if let Some(call_media_data_rx) = &mut (*state_changed_user_data).call_media_data_rx {
             match call_media_data_rx.try_recv() {
-                Ok(data) => {
+                Ok(call_media_data) => {
                     let call_conf_port = ffi_assert_res(pjsua_call::get_call_conf_port(call_id));
 
-                    data.sinks_slots.iter().for_each(|added_port_slot| {
-                        eprintln!(
-                            "Connecting {:?} to {:?}...",
-                            call_conf_port, *added_port_slot
-                        );
+                    call_media_data
+                        .sinks_slots
+                        .iter()
+                        .for_each(|added_port_slot| {
+                            eprintln!(
+                                "Connecting {:?} to {:?}...",
+                                call_conf_port, *added_port_slot
+                            );
 
-                        let status = get_error_as_result(pjsua::pjsua_conf_connect(
-                            call_conf_port,
-                            *added_port_slot,
-                        ));
+                            let status = get_error_as_result(pjsua::pjsua_conf_connect(
+                                call_conf_port,
+                                added_port_slot.sink_slot,
+                            ));
 
-                        ffi_assert_res(status);
+                            ffi_assert_res(status);
 
-                        eprintln!(
-                            "connected conf bridge slots {:?} -> {:?}",
-                            call_conf_port, *added_port_slot
-                        )
-                    });
+                            eprintln!(
+                                "connected conf bridge slots {:?} -> {:?}",
+                                call_conf_port, *added_port_slot
+                            )
+                        });
                 }
                 _ => {}
             };
@@ -179,8 +175,8 @@ impl Default for LogConfig {
                 Box::new(MaybeUninit::<pjsua::pjsua_logging_config>::zeroed().assume_init());
             pjsua::pjsua_logging_config_default(log_cfg.as_mut());
 
-            log_cfg.console_level = 1000;
-            log_cfg.level = 1000;
+            log_cfg.console_level = 4;
+            log_cfg.level = 4;
 
             Self {
                 logging_cfg: log_cfg,
@@ -215,6 +211,7 @@ impl Default for MediaConfig {
 
             media_cfg.no_vad = 1;
             media_cfg.ec_tail_len = 0;
+            media_cfg.snd_auto_close_time = 0;
 
             Self { media_cfg }
         }

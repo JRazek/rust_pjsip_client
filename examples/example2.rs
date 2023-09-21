@@ -6,6 +6,7 @@ use pjsip_client::transport::PjsuaTransport;
 use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 
 use pjsip_client::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortRx};
+use pjsip_client::pjsua_call;
 
 pub async fn recv_task(mut frames_rx: CustomSinkMediaPortRx) {
     let mut i = 0;
@@ -20,6 +21,25 @@ pub async fn recv_task(mut frames_rx: CustomSinkMediaPortRx) {
 
         i += 1;
     }
+}
+
+pub async fn handle_call(incoming_call: pjsua_call::PjsuaIncomingCall<'_>) {
+    let mem_pool = PjsuaMemoryPool::new(10000, 10000).expect("Failed to create memory pool");
+
+    let call = incoming_call
+        .answer_session_progress()
+        .await
+        .expect("answer failed!");
+
+    let (sink_buffer_media_port, frames_rx) =
+        CustomSinkMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
+
+    let call = call
+        .add(sink_buffer_media_port, &mem_pool)
+        .await
+        .expect("connect failed!");
+
+    call.await_hangup().await.expect("hangup failed!");
 }
 
 #[tokio::main]
@@ -41,31 +61,12 @@ async fn main() {
 
     let instance = instance.start().expect("start failed!");
 
-    let mut account_added1 = instance
+    let mut account_added = instance
         .add_account(account_config1)
         .await
         .expect("add_account failed!");
 
-    let mem_pool = PjsuaMemoryPool::new(10000, 10000).expect("Failed to create memory pool");
-
-    let incoming_call = account_added1.next_call().await.expect("test");
-    println!("answering...");
-
-    let call = incoming_call
-        .answer_session_progress()
-        .await
-        .expect("answer failed!");
-
-    let (sink_buffer_media_port, frames_rx) =
-        CustomSinkMediaPort::new(8000, 1, 800, &mem_pool).expect("test");
-
-    let call = call
-        .add(sink_buffer_media_port, &mem_pool)
-        .await
-        .expect("connect failed!");
-
-    tokio::select! {
-        _ = call.await_hangup() => {},
-        _ = recv_task(frames_rx) => {},
-    };
+    while let Ok(incoming_call) = account_added.next_call().await {
+        handle_call(incoming_call).await;
+    }
 }

@@ -11,6 +11,8 @@ use std::sync::atomic::AtomicU32;
 
 use tokio::sync::mpsc as tokio_mpsc;
 
+use crate::ffi_assert;
+
 fn perform_pjmedia_format_checks_zero_division(
     samples_per_frame: u32,
     audio_format_detail: &pjsua::pjmedia_audio_format_detail,
@@ -62,11 +64,9 @@ unsafe extern "C" fn custom_port_put_frame(
     let frame_type = unsafe { (*frame).type_ };
     let bit_info = unsafe { (*frame).bit_info };
 
-    assert_eq!(bit_info, 0);
-    assert_eq!(
-        frame_type,
-        pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO
-    );
+    //    ffi_assert!(bit_info == 0);
+//    eprintln!("bit_info: {:?}", bit_info);
+    ffi_assert!(frame_type == pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO);
 
     let frame = ffi_assert_res(Frame::new(&*frame, sample_rate, channels_count));
 
@@ -89,7 +89,11 @@ unsafe extern "C" fn custom_port_get_frame(
     return 0; // or appropriate status
 }
 
-unsafe extern "C" fn custom_port_on_destroy(_port: *mut pjsua::pjmedia_port) -> pjsua::pj_status_t {
+unsafe extern "C" fn custom_port_on_destroy(port: *mut pjsua::pjmedia_port) -> pjsua::pj_status_t {
+    //base.port_data.pdata
+
+    let _port: Box<MediaPortData> = Box::from_raw((*port).port_data.pdata as *mut MediaPortData);
+
     eprintln!("custom_port_on_destroy");
     return 0; // or appropriate status
 }
@@ -282,6 +286,12 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
 
 impl<'a> Drop for CustomSinkMediaPortAdded<'a> {
     fn drop(&mut self) {
+        unsafe {
+            eprintln!("removing port from conf bridge: {:?}", self.port_slot);
+            let status = pjsua::pjsua_conf_remove_port(self.port_slot);
+            get_error_as_result(status).unwrap();
+        }
+
         let status = unsafe { pjsua::pjmedia_port_destroy(self.base.as_mut()) };
         get_error_as_result(status).unwrap();
     }

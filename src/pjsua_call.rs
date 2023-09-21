@@ -101,7 +101,7 @@ use tokio::sync::oneshot as tokio_oneshot;
 
 pub struct PjsuaCallHandle<'a> {
     call_id: pjsua::pjsua_call_id,
-    user_data: Box<cb_user_data::StateChangedUserData>,
+    _user_data: Box<cb_user_data::StateChangedUserData>,
     _pjsua_instance_started: &'a pjsua_softphone_api::PjsuaInstanceStarted,
     state_changed_rx: CallStateReceiver,
     call_media_data_tx: Option<tokio_oneshot::Sender<CallMediaData>>,
@@ -123,7 +123,7 @@ impl<'a> PjsuaCallHandle<'a> {
         let raw_user_data = user_data.as_mut() as *mut cb_user_data::StateChangedUserData;
 
         unsafe {
-            eprintln!("Setting user data...");
+            eprintln!("Setting user data for call {:?}...", call_id);
             let status =
                 pjsua::pjsua_call_set_user_data(call_id, raw_user_data as *mut std::ffi::c_void);
 
@@ -132,7 +132,7 @@ impl<'a> PjsuaCallHandle<'a> {
 
         Ok(Self {
             call_id,
-            user_data,
+            _user_data: user_data,
             state_changed_rx,
             call_media_data_tx: Some(call_media_data_tx),
             _pjsua_instance_started: pjsua_instance_started,
@@ -277,7 +277,9 @@ impl<'a> PjsuaCallSetup<'a> {
             .take()
             .unwrap()
             .send(CallMediaData {
-                sinks_slots: vec![port_added.port_slot()],
+                sinks_slots: vec![CallMediaEntry {
+                    sink_slot: port_added.port_slot(),
+                }],
             })
             .unwrap();
 
@@ -406,8 +408,13 @@ pub enum CallMediaStatus {
 use std::vec::Vec;
 
 #[derive(Debug)]
+pub struct CallMediaEntry {
+    pub sink_slot: i32,
+}
+
+#[derive(Debug)]
 pub struct CallMediaData {
-    pub sinks_slots: Vec<i32>,
+    pub sinks_slots: Vec<CallMediaEntry>,
 }
 
 impl TryFrom<u32> for CallMediaStatus {
