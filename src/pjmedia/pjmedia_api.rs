@@ -2,6 +2,8 @@ use crate::error::get_error_as_result;
 use crate::error::PjsuaError;
 use std::sync::atomic::AtomicU32;
 
+use tokio::sync::mpsc as tokio_mpsc;
+
 const BITS_PER_SAMPLE: u32 = 16;
 
 pub(super) fn perform_pjmedia_format_checks_zero_division(
@@ -100,6 +102,7 @@ pub(super) fn port_format(
     Ok(format)
 }
 
+#[derive(Debug)]
 pub struct Frame {
     pub data: Box<[u8]>,
     pub time: std::time::Duration,
@@ -141,4 +144,23 @@ pub(crate) unsafe fn get_samples_diff(
     let samples_diff = pjsua::pj_elapsed_nanosec(&timestamp1, &timestamp2);
 
     samples_diff
+}
+
+#[derive(Debug)]
+pub enum SendError {
+    TokioSendError(tokio_mpsc::error::SendError<Frame>),
+    InvalidSizeFrameError(Frame),
+}
+
+impl std::error::Error for SendError {}
+
+impl std::fmt::Display for SendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            SendError::TokioSendError(e) => write!(f, "TokioSendError: {}", e),
+            SendError::InvalidSizeFrameError(frame) => {
+                write!(f, "InvalidSizeFrameError: {:?}", frame)
+            }
+        }
+    }
 }

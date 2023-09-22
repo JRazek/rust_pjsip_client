@@ -1,19 +1,17 @@
-
 use crate::error::get_error_as_result;
 use crate::error::PjsuaError;
+use crate::ffi_assert;
 use crate::pjsua_memory_pool::PjsuaMemoryPool;
 
 use crate::pj_types::PjString;
 
 use crate::pj_types::Frame;
 
-
-
 use tokio::sync::mpsc as tokio_mpsc;
 
-use crate::ffi_assert;
-
 use super::pjmedia_api;
+
+use crate::pjsua_softphone_api::PjsuaInstanceStarted;
 
 unsafe extern "C" fn custom_port_get_frame(
     port: *mut pjsua::pjmedia_port,
@@ -25,12 +23,18 @@ unsafe extern "C" fn custom_port_get_frame(
 
     let frame_type = unsafe { (*frame).type_ };
 
-    ffi_assert!(frame_type == pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO);
+    if let pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO = frame_type {
+        eprintln!("custom_port_get_frame");
 
-    eprintln!("custom_port_get_frame");
+        let frame = &mut *frame;
+        if let Ok(frame_recv) = (*media_port_data).frames_rx.try_recv() {
+            ffi_assert!(frame_recv.data.len() == (*frame).size);
 
-    if let Ok(_frame_recv) = (*media_port_data).frames_rx.try_recv() {
-        eprintln!("Buffer full, dropping frame...");
+            let frame_data: &mut [u8] =
+                std::slice::from_raw_parts_mut(frame.buf as *mut _, frame.size);
+
+            frame_data.copy_from_slice(frame_recv.data.as_ref());
+        }
     }
 
     return 0; // or appropriate status
@@ -58,15 +62,23 @@ pub struct CustomStreamMediaPort<'a> {
 
 pub struct CustomStreamMediaPortTx {
     frames_tx: tokio_mpsc::Sender<Frame>,
+    samples_per_frame: usize,
 }
+
+use super::pjmedia_api::SendError;
 
 impl CustomStreamMediaPortTx {
-    pub async fn send(&self, frame: Frame) -> Result<(), tokio_mpsc::error::SendError<Frame>> {
-        self.frames_tx.send(frame).await
+    pub async fn send(&self, frame: Frame) -> Result<(), SendError> {
+        if frame.data.len() != self.samples_per_frame {
+            return Err(SendError::InvalidSizeFrameError(frame));
+        }
+
+        match self.frames_tx.send(frame).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(SendError::TokioSendError(e)),
+        }
     }
 }
-
-use crate::pjsua_softphone_api::PjsuaInstanceStarted;
 
 impl<'a> CustomStreamMediaPort<'a> {
     pub fn new(
@@ -107,7 +119,10 @@ impl<'a> CustomStreamMediaPort<'a> {
                 _name: name,
                 _format: format,
             },
-            CustomStreamMediaPortTx { frames_tx },
+            CustomStreamMediaPortTx {
+                frames_tx,
+                samples_per_frame: samples_per_frame as usize,
+            },
         ))
     }
 
