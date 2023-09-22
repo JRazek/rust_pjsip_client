@@ -292,7 +292,7 @@ impl<'a> PjsuaCallSetup<'a> {
 
         eprintln!("Call answered");
 
-        let mut pjsua_call = PjsuaCall::new(call_handle, sink_added).await?;
+        let mut pjsua_call = PjsuaCall::new(call_handle, sink_added, stream_added).await?;
 
         await_call_state(
             &mut pjsua_call.call_handle.state_changed_rx,
@@ -311,6 +311,7 @@ impl<'a> PjsuaCallSetup<'a> {
 
 pub struct PjsuaCall<'a> {
     media_sink: CustomSinkMediaPortAdded<'a>,
+    media_stream: CustomStreamMediaPortAdded<'a>,
     call_handle: PjsuaCallHandle<'a>,
 }
 
@@ -318,11 +319,13 @@ impl<'a> PjsuaCall<'a> {
     pub async fn new(
         pjsua_call_setup: PjsuaCallHandle<'a>,
         media_sink: CustomSinkMediaPortAdded<'a>,
+        media_stream: CustomStreamMediaPortAdded<'a>,
     ) -> Result<PjsuaCall<'a>, PjsuaError> {
         let call_handle = pjsua_call_setup;
 
         Ok(Self {
             media_sink,
+            media_stream,
             call_handle,
         })
     }

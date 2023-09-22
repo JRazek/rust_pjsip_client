@@ -23,6 +23,12 @@ unsafe extern "C" fn custom_port_get_frame(
     let sample_rate = (*media_port_data).sample_rate;
     let channels_count = (*media_port_data).channels_count;
 
+    let frame_type = unsafe { (*frame).type_ };
+
+    ffi_assert!(frame_type == pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO);
+
+    eprintln!("custom_port_get_frame");
+
     if let Ok(frame_recv) = (*media_port_data).frames_rx.try_recv() {
         eprintln!("Buffer full, dropping frame...");
     }
@@ -71,7 +77,7 @@ impl<'a> CustomStreamMediaPort<'a> {
     ) -> Result<(Self, CustomStreamMediaPortTx), PjsuaError> {
         let mut base: Box<pjsua::pjmedia_port> = Box::new(unsafe { std::mem::zeroed() });
 
-        let name = PjString::alloc("CustomMediaPort", &mem_pool);
+        let name = PjString::alloc("CustomStreamMediaPort", &mem_pool);
 
         let format = Box::new(pjmedia_api::port_format(
             sample_rate,
