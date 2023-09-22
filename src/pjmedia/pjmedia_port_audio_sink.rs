@@ -39,7 +39,7 @@ unsafe extern "C" fn custom_port_put_frame(
     let channels_count = (*media_port_data).channels_count;
 
     let frame_type = unsafe { (*frame).type_ };
-    let bit_info = unsafe { (*frame).bit_info };
+    let _bit_info = unsafe { (*frame).bit_info };
 
     ffi_assert!(frame_type == pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO);
 

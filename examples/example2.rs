@@ -7,7 +7,7 @@ use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 
 use pjsip_client::pjmedia::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortRx};
 use pjsip_client::pjmedia::pjmedia_port_audio_stream::{
-    CustomStreamMediaPort, CustomStreamMediaPortTx,
+    CustomStreamMediaPort,
 };
 use pjsip_client::pjsua_call;
 
@@ -34,10 +34,10 @@ pub async fn handle_call(incoming_call: pjsua_call::PjsuaIncomingCall<'_>) {
         .await
         .expect("answer failed!");
 
-    let (sink_media_port, frames_rx) =
+    let (sink_media_port, _frames_rx) =
         CustomSinkMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
 
-    let (stream_media_port, frames_tx) =
+    let (stream_media_port, _frames_tx) =
         CustomStreamMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
 
     let call = call

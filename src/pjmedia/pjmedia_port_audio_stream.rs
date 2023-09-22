@@ -1,4 +1,4 @@
-use crate::error::ffi_assert_res;
+
 use crate::error::get_error_as_result;
 use crate::error::PjsuaError;
 use crate::pjsua_memory_pool::PjsuaMemoryPool;
@@ -7,7 +7,7 @@ use crate::pj_types::PjString;
 
 use crate::pj_types::Frame;
 
-use std::sync::atomic::AtomicU32;
+
 
 use tokio::sync::mpsc as tokio_mpsc;
 
@@ -20,8 +20,8 @@ unsafe extern "C" fn custom_port_get_frame(
     frame: *mut pjsua::pjmedia_frame,
 ) -> pjsua::pj_status_t {
     let media_port_data = unsafe { (*port).port_data.pdata as *mut MediaPortData };
-    let sample_rate = (*media_port_data).sample_rate;
-    let channels_count = (*media_port_data).channels_count;
+    let _sample_rate = (*media_port_data).sample_rate;
+    let _channels_count = (*media_port_data).channels_count;
 
     let frame_type = unsafe { (*frame).type_ };
 
@@ -29,7 +29,7 @@ unsafe extern "C" fn custom_port_get_frame(
 
     eprintln!("custom_port_get_frame");
 
-    if let Ok(frame_recv) = (*media_port_data).frames_rx.try_recv() {
+    if let Ok(_frame_recv) = (*media_port_data).frames_rx.try_recv() {
         eprintln!("Buffer full, dropping frame...");
     }
 
