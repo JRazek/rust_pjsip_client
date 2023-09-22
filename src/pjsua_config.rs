@@ -88,6 +88,16 @@ unsafe extern "C" fn on_create_media_transport(
     base_tp
 }
 
+unsafe fn connect_slots(stream: i32, sink: i32) {
+    eprintln!("Connecting {:?} to {:?}...", stream, sink);
+
+    let status = get_error_as_result(pjsua::pjsua_conf_connect(stream, sink));
+
+    ffi_assert_res(status);
+
+    eprintln!("connected conf bridge slots {:?} -> {:?}", stream, sink)
+}
+
 unsafe extern "C" fn on_call_media_state(call_id: pjsua::pjsua_call_id) {
     use super::pjsua_call;
 
@@ -113,27 +123,13 @@ unsafe extern "C" fn on_call_media_state(call_id: pjsua::pjsua_call_id) {
                 Ok(call_media_data) => {
                     let call_conf_port = ffi_assert_res(pjsua_call::get_call_conf_port(call_id));
 
-                    call_media_data
-                        .sinks_slots
-                        .iter()
-                        .for_each(|added_port_slot| {
-                            eprintln!(
-                                "Connecting {:?} to {:?}...",
-                                call_conf_port, *added_port_slot
-                            );
+                    call_media_data.sinks_slots.iter().for_each(|entry| {
+                        connect_slots(call_conf_port, entry.slot);
+                    });
 
-                            let status = get_error_as_result(pjsua::pjsua_conf_connect(
-                                call_conf_port,
-                                added_port_slot.sink_slot,
-                            ));
-
-                            ffi_assert_res(status);
-
-                            eprintln!(
-                                "connected conf bridge slots {:?} -> {:?}",
-                                call_conf_port, *added_port_slot
-                            )
-                        });
+                    call_media_data.stream_slots.iter().for_each(|entry| {
+                        connect_slots(entry.slot, call_conf_port);
+                    });
                 }
                 _ => {}
             };

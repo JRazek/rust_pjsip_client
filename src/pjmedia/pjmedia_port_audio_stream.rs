@@ -15,59 +15,22 @@ use crate::ffi_assert;
 
 use super::pjmedia_api;
 
-unsafe extern "C" fn custom_port_put_frame(
+unsafe extern "C" fn custom_port_get_frame(
     port: *mut pjsua::pjmedia_port,
     frame: *mut pjsua::pjmedia_frame,
 ) -> pjsua::pj_status_t {
-    static mut COUNTER: AtomicU32 = AtomicU32::new(0);
-
-    let count = unsafe { COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) };
-
-    if count % 100 == 0 {
-        println!(
-            "custom_port_put_frame: frame buffer size: {:?}",
-            (*frame).size
-        );
-    }
-
-    if frame.is_null() || (*frame).buf.is_null() || (*frame).size == 0 {
-        return 0;
-    }
-
     let media_port_data = unsafe { (*port).port_data.pdata as *mut MediaPortData };
     let sample_rate = (*media_port_data).sample_rate;
     let channels_count = (*media_port_data).channels_count;
 
-    let frame_type = unsafe { (*frame).type_ };
-    let bit_info = unsafe { (*frame).bit_info };
-
-    ffi_assert!(frame_type == pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO);
-
-    let frame =
-        ffi_assert_res(unsafe { Frame::from_raw_frame(&*frame, sample_rate, channels_count) });
-
-    if let Err(_) = (*media_port_data).frames_tx.try_send(frame) {
+    if let Ok(frame_recv) = (*media_port_data).frames_rx.try_recv() {
         eprintln!("Buffer full, dropping frame...");
     }
 
     return 0; // or appropriate status
 }
 
-unsafe extern "C" fn custom_port_get_frame(
-    _port: *mut pjsua::pjmedia_port,
-    frame: *mut pjsua::pjmedia_frame,
-) -> pjsua::pj_status_t {
-    println!(
-        "custom_port_get_frame: frame buffer size: {:?}",
-        (*frame).size
-    );
-
-    return 0; // or appropriate status
-}
-
 unsafe extern "C" fn custom_port_on_destroy(port: *mut pjsua::pjmedia_port) -> pjsua::pj_status_t {
-    //base.port_data.pdata
-
     let _port: Box<MediaPortData> = Box::from_raw((*port).port_data.pdata as *mut MediaPortData);
 
     eprintln!("custom_port_on_destroy");
@@ -75,36 +38,37 @@ unsafe extern "C" fn custom_port_on_destroy(port: *mut pjsua::pjmedia_port) -> p
 }
 
 struct MediaPortData {
-    frames_tx: tokio_mpsc::Sender<Frame>,
+    frames_rx: tokio_mpsc::Receiver<Frame>,
+
     sample_rate: u32,
     channels_count: usize,
 }
 
-pub struct CustomSinkMediaPort<'a> {
+pub struct CustomStreamMediaPort<'a> {
     base: Box<pjsua::pjmedia_port>,
     _format: Box<pjsua::pjmedia_format>,
     _name: PjString<'a>,
 }
 
-pub struct CustomSinkMediaPortRx {
-    frames_rx: tokio_mpsc::Receiver<Frame>,
+pub struct CustomStreamMediaPortTx {
+    frames_tx: tokio_mpsc::Sender<Frame>,
 }
 
-impl CustomSinkMediaPortRx {
-    pub async fn recv(&mut self) -> Option<Frame> {
-        self.frames_rx.recv().await
+impl CustomStreamMediaPortTx {
+    pub async fn send(&self, frame: Frame) -> Result<(), tokio_mpsc::error::SendError<Frame>> {
+        self.frames_tx.send(frame).await
     }
 }
 
 use crate::pjsua_softphone_api::PjsuaInstanceStarted;
 
-impl<'a> CustomSinkMediaPort<'a> {
+impl<'a> CustomStreamMediaPort<'a> {
     pub fn new(
         sample_rate: u32,
         channels_count: usize,
         samples_per_frame: u32,
         mem_pool: &'a PjsuaMemoryPool,
-    ) -> Result<(Self, CustomSinkMediaPortRx), PjsuaError> {
+    ) -> Result<(Self, CustomStreamMediaPortTx), PjsuaError> {
         let mut base: Box<pjsua::pjmedia_port> = Box::new(unsafe { std::mem::zeroed() });
 
         let name = PjString::alloc("CustomMediaPort", &mem_pool);
@@ -117,7 +81,6 @@ impl<'a> CustomSinkMediaPort<'a> {
 
         let port_info = unsafe { pjmedia_api::port_info(format.as_ref(), name.as_ref()) };
 
-        base.put_frame = Some(custom_port_put_frame);
         base.get_frame = Some(custom_port_get_frame);
 
         base.info = port_info?;
@@ -125,7 +88,7 @@ impl<'a> CustomSinkMediaPort<'a> {
         let (frames_tx, frames_rx) = tokio_mpsc::channel(512);
 
         base.port_data.pdata = Box::into_raw(Box::new(MediaPortData {
-            frames_tx,
+            frames_rx,
             sample_rate,
             channels_count,
         })) as *mut _;
@@ -133,12 +96,12 @@ impl<'a> CustomSinkMediaPort<'a> {
         base.on_destroy = Some(custom_port_on_destroy);
 
         Ok((
-            CustomSinkMediaPort {
+            CustomStreamMediaPort {
                 base,
                 _name: name,
                 _format: format,
             },
-            CustomSinkMediaPortRx { frames_rx },
+            CustomStreamMediaPortTx { frames_tx },
         ))
     }
 
@@ -146,20 +109,20 @@ impl<'a> CustomSinkMediaPort<'a> {
         self,
         mem_pool: &'a PjsuaMemoryPool,
         instance_started: &'a PjsuaInstanceStarted,
-    ) -> Result<CustomSinkMediaPortAdded<'a>, PjsuaError> {
-        CustomSinkMediaPortAdded::new(self, mem_pool, instance_started)
+    ) -> Result<CustomStreamMediaPortAdded<'a>, PjsuaError> {
+        CustomStreamMediaPortAdded::new(self, mem_pool, instance_started)
     }
 }
 
-pub struct CustomSinkMediaPortAdded<'a> {
+pub struct CustomStreamMediaPortAdded<'a> {
     base: Box<pjsua::pjmedia_port>,
     _pjsua_instance: &'a PjsuaInstanceStarted,
     port_slot: pjsua::pjsua_conf_port_id,
 }
 
-impl<'a> CustomSinkMediaPortAdded<'a> {
+impl<'a> CustomStreamMediaPortAdded<'a> {
     pub(crate) fn new(
-        media_port: CustomSinkMediaPort<'a>,
+        media_port: CustomStreamMediaPort<'a>,
         mem_pool: &'a PjsuaMemoryPool,
         pjsua_instance: &'a PjsuaInstanceStarted,
     ) -> Result<Self, PjsuaError> {
@@ -173,9 +136,9 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
             eprintln!("added port to conf bridge: {:?}", port_slot);
         }
 
-        base.put_frame = Some(custom_port_put_frame);
+        base.put_frame = Some(custom_port_get_frame);
 
-        Ok(CustomSinkMediaPortAdded {
+        Ok(CustomStreamMediaPortAdded {
             base,
             _pjsua_instance: pjsua_instance,
             port_slot,
@@ -187,7 +150,7 @@ impl<'a> CustomSinkMediaPortAdded<'a> {
     }
 }
 
-impl<'a> Drop for CustomSinkMediaPortAdded<'a> {
+impl<'a> Drop for CustomStreamMediaPortAdded<'a> {
     fn drop(&mut self) {
         unsafe {
             eprintln!("removing port from conf bridge: {:?}", self.port_slot);

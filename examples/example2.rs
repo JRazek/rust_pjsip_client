@@ -6,6 +6,9 @@ use pjsip_client::transport::PjsuaTransport;
 use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 
 use pjsip_client::pjmedia::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortRx};
+use pjsip_client::pjmedia::pjmedia_port_audio_stream::{
+    CustomStreamMediaPort, CustomStreamMediaPortTx,
+};
 use pjsip_client::pjsua_call;
 
 pub async fn recv_task(mut frames_rx: CustomSinkMediaPortRx) {
@@ -31,11 +34,14 @@ pub async fn handle_call(incoming_call: pjsua_call::PjsuaIncomingCall<'_>) {
         .await
         .expect("answer failed!");
 
-    let (sink_buffer_media_port, frames_rx) =
+    let (sink_media_port, frames_rx) =
         CustomSinkMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
 
+    let (stream_media_port, frames_tx) =
+        CustomStreamMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
+
     let call = call
-        .add(sink_buffer_media_port, &mem_pool)
+        .add(sink_media_port, stream_media_port, &mem_pool)
         .await
         .expect("connect failed!");
 

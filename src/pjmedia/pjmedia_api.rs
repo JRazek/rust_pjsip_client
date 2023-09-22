@@ -106,7 +106,7 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub(crate) fn new(
+    pub(crate) unsafe fn from_raw_frame(
         frame_raw: &pjsua::pjmedia_frame,
         sample_rate: u32,
         channels_count: usize,
@@ -127,6 +127,10 @@ impl Frame {
             data: frame_data,
             time: samples_elapsed * sample_duration(sample_rate, channels_count),
         })
+    }
+
+    pub(crate) fn new(data: Box<[u8]>, time: std::time::Duration) -> Self {
+        Frame { data, time }
     }
 }
 

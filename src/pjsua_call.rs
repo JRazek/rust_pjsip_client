@@ -212,6 +212,7 @@ impl<'a> PjsuaIncomingCall<'a> {
 type CallStateReceiver = tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, PjsipInvState)>;
 
 use super::pjmedia::pjmedia_port_audio_sink::*;
+use super::pjmedia::pjmedia_port_audio_stream::*;
 
 async fn await_call_state(
     state_rx: &mut CallStateReceiver,
@@ -260,17 +261,16 @@ impl<'a> PjsuaCallSetup<'a> {
 
     pub async fn add(
         self,
-        custom_media_port: CustomSinkMediaPort<'a>,
+        sink: CustomSinkMediaPort<'a>,
+        stream: CustomStreamMediaPort<'a>,
         mem_pool: &'a PjsuaMemoryPool,
     ) -> Result<PjsuaCall<'a>, PjsuaError> {
         eprintln!("PjcuaCallSetup::add called");
 
         let mut call_handle = self.call_handle;
 
-        let port_added = self
-            .pjsua_instance_started
-            .setup_sink_media(custom_media_port, &call_handle, mem_pool)
-            .await?;
+        let sink_added = sink.add(mem_pool, &self.pjsua_instance_started)?;
+        let stream_added = stream.add(mem_pool, &self.pjsua_instance_started)?;
 
         call_handle
             .call_media_data_tx
@@ -278,7 +278,10 @@ impl<'a> PjsuaCallSetup<'a> {
             .unwrap()
             .send(CallMediaData {
                 sinks_slots: vec![CallMediaEntry {
-                    sink_slot: port_added.port_slot(),
+                    slot: sink_added.port_slot(),
+                }],
+                stream_slots: vec![CallMediaEntry {
+                    slot: stream_added.port_slot(),
                 }],
             })
             .unwrap();
@@ -289,7 +292,7 @@ impl<'a> PjsuaCallSetup<'a> {
 
         eprintln!("Call answered");
 
-        let mut pjsua_call = PjsuaCall::new(call_handle, port_added).await?;
+        let mut pjsua_call = PjsuaCall::new(call_handle, sink_added).await?;
 
         await_call_state(
             &mut pjsua_call.call_handle.state_changed_rx,
@@ -409,12 +412,13 @@ use std::vec::Vec;
 
 #[derive(Debug)]
 pub struct CallMediaEntry {
-    pub sink_slot: i32,
+    pub slot: i32,
 }
 
 #[derive(Debug)]
 pub struct CallMediaData {
     pub sinks_slots: Vec<CallMediaEntry>,
+    pub stream_slots: Vec<CallMediaEntry>,
 }
 
 impl TryFrom<u32> for CallMediaStatus {

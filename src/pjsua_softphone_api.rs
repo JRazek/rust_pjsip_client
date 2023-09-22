@@ -134,10 +134,6 @@ impl PjsuaInstanceInit {
     }
 }
 
-use super::pjmedia::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortAdded};
-use super::pjsua_call::PjsuaCallHandle;
-use super::pjsua_memory_pool::PjsuaMemoryPool;
-
 impl PjsuaInstanceStarted {
     pub async fn add_account(
         &self,
@@ -148,17 +144,6 @@ impl PjsuaInstanceStarted {
         //note, this does not use FFI
 
         account_added
-    }
-
-    pub(crate) async fn setup_sink_media<'a>(
-        &'a self,
-        custom_media_port: CustomSinkMediaPort<'a>,
-        _pjsua_call: &PjsuaCallHandle<'a>,
-        mem_pool: &'a PjsuaMemoryPool,
-    ) -> Result<CustomSinkMediaPortAdded<'a>, PjsuaError> {
-        let added_port = custom_media_port.add(mem_pool, self)?;
-
-        Ok(added_port)
     }
 }
 
