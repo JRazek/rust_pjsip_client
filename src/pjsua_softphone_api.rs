@@ -134,7 +134,7 @@ impl PjsuaInstanceInit {
     }
 }
 
-use super::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortAdded};
+use super::pjmedia::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortAdded};
 use super::pjsua_call::PjsuaCallHandle;
 use super::pjsua_memory_pool::PjsuaMemoryPool;
 

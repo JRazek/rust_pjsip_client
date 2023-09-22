@@ -1,11 +1,11 @@
-use super::error::PjsuaError;
-use super::pjsua_memory_pool::PjsuaMemoryPool;
 use crate::error::ffi_assert_res;
 use crate::error::get_error_as_result;
+use crate::error::PjsuaError;
+use crate::pjsua_memory_pool::PjsuaMemoryPool;
 
-use super::pj_types::PjString;
+use crate::pj_types::PjString;
 
-use super::pj_types::Frame;
+use crate::pj_types::Frame;
 
 use std::sync::atomic::AtomicU32;
 
@@ -13,30 +13,7 @@ use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::ffi_assert;
 
-fn perform_pjmedia_format_checks_zero_division(
-    samples_per_frame: u32,
-    audio_format_detail: &pjsua::pjmedia_audio_format_detail,
-) -> Result<(), PjsuaError> {
-    let port_ptime = samples_per_frame / audio_format_detail.channel_count * 1000
-        / audio_format_detail.clock_rate;
-
-    if port_ptime == 0 {
-        let message = format!("samples_per_frame is too low! port_ptime = samples_per_frame / channel_count * 1000 / clock_rate is 0! \
-                              Reference: https://github.com/pjsip/pjproject/blob/7ff31e311373dc81174a5cb24698da5377885897/pjmedia/src/pjmedia/conference.c#L265-L389. \
-                              Division by zero happens at conference.c:387 \
-                                          if (conf_ptime % port_ptime)") ;
-
-        return Err(PjsuaError { code: -1, message });
-    }
-
-    Ok(())
-}
-
-pub(crate) fn sample_duration(sample_rate: u32, channels_count: usize) -> std::time::Duration {
-    let sample_time_usec = 1_000_000 / channels_count as u64 / sample_rate as u64;
-
-    std::time::Duration::from_micros(sample_time_usec)
-}
+use super::pjmedia_api;
 
 unsafe extern "C" fn custom_port_put_frame(
     port: *mut pjsua::pjmedia_port,
@@ -64,8 +41,6 @@ unsafe extern "C" fn custom_port_put_frame(
     let frame_type = unsafe { (*frame).type_ };
     let bit_info = unsafe { (*frame).bit_info };
 
-    //    ffi_assert!(bit_info == 0);
-//    eprintln!("bit_info: {:?}", bit_info);
     ffi_assert!(frame_type == pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO);
 
     let frame = ffi_assert_res(Frame::new(&*frame, sample_rate, channels_count));
@@ -120,9 +95,7 @@ impl CustomSinkMediaPortRx {
     }
 }
 
-use super::pjsua_softphone_api::PjsuaInstanceStarted;
-
-const BITS_PER_SAMPLE: u32 = 16;
+use crate::pjsua_softphone_api::PjsuaInstanceStarted;
 
 impl<'a> CustomSinkMediaPort<'a> {
     pub fn new(
@@ -135,13 +108,13 @@ impl<'a> CustomSinkMediaPort<'a> {
 
         let name = PjString::alloc("CustomMediaPort", &mem_pool);
 
-        let format = Box::new(Self::port_format(
+        let format = Box::new(pjmedia_api::port_format(
             sample_rate,
             channels_count,
             samples_per_frame,
         )?);
 
-        let port_info = unsafe { Self::port_info(format.as_ref(), name.as_ref()) };
+        let port_info = unsafe { pjmedia_api::port_info(format.as_ref(), name.as_ref()) };
 
         base.put_frame = Some(custom_port_put_frame);
         base.get_frame = Some(custom_port_get_frame);
@@ -166,77 +139,6 @@ impl<'a> CustomSinkMediaPort<'a> {
             },
             CustomSinkMediaPortRx { frames_rx },
         ))
-    }
-
-    fn rand_signature() -> u32 {
-        static mut SIGNATURE: AtomicU32 = AtomicU32::new(0);
-
-        unsafe { SIGNATURE.fetch_add(1, std::sync::atomic::Ordering::SeqCst) }
-    }
-
-    unsafe fn port_info(
-        format: *const pjsua::pjmedia_format,
-        name: *const pjsua::pj_str_t,
-    ) -> Result<pjsua::pjmedia_port_info, PjsuaError> {
-        let mut port_info: pjsua::pjmedia_port_info = unsafe { std::mem::zeroed() };
-
-        let signature = Self::rand_signature();
-
-        //TODO: research the output format.
-        //https://github.com/chakrit/pjsip/blob/b0af6c8fc8ed97bb03d3afa4ab42c24f46a9212b/pjmedia/src/pjmedia/port.c#L33
-        //https://github.com/pjsip/pjproject/blob/01d37bf15a9121e6e78afe41a5c3ef4fa2ae3308/pjsip-apps/src/samples/playsine.c#L140C5-L140C27
-        unsafe {
-            let status = get_error_as_result(pjsua::pjmedia_port_info_init2(
-                &mut port_info,
-                name,
-                signature,
-                pjsua::pjmedia_dir_PJMEDIA_DIR_ENCODING_DECODING,
-                format,
-            ));
-
-            status?;
-        }
-
-        eprintln!("fmt.type: {}", port_info.fmt.type_);
-        eprintln!("fmt.type_detail: {}", port_info.fmt.detail_type);
-
-        Ok(port_info)
-    }
-
-    pub(crate) fn port_format(
-        sample_rate: u32,
-        channels_count: usize,
-        samples_per_frame: u32,
-    ) -> Result<pjsua::pjmedia_format, PjsuaError> {
-        let mut format: pjsua::pjmedia_format = unsafe { std::mem::zeroed() };
-
-        const FORMAT_ID: u32 = pjsua::pjmedia_format_id_PJMEDIA_FORMAT_L16;
-
-        format.id = FORMAT_ID;
-        format.type_ = pjsua::pjmedia_type_PJMEDIA_TYPE_AUDIO;
-        format.detail_type = pjsua::pjmedia_format_detail_type_PJMEDIA_FORMAT_DETAIL_AUDIO;
-
-        let frame_time_usec =
-            samples_per_frame as u64 * 1_000_000 / channels_count as u64 / sample_rate as u64;
-
-        let avg_bps = sample_rate * channels_count as u32 * BITS_PER_SAMPLE;
-
-        //TODO: value that is set here, is not visible in
-        //format.det.aud!
-        unsafe {
-            let det = &mut format.det.aud;
-
-            det.clock_rate = sample_rate;
-            det.channel_count = channels_count as u32;
-            det.bits_per_sample = BITS_PER_SAMPLE;
-            det.frame_time_usec = frame_time_usec as u32;
-            det.avg_bps = avg_bps;
-            det.max_bps = avg_bps;
-
-            perform_pjmedia_format_checks_zero_division(samples_per_frame, &det)?;
-        }
-
-        Ok(format)
     }
 
     pub(crate) fn add(

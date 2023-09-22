@@ -5,7 +5,7 @@ use pjsip_client::transport::PjsuaTransport;
 
 use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 
-use pjsip_client::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortRx};
+use pjsip_client::pjmedia::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortRx};
 use pjsip_client::pjsua_call;
 
 pub async fn recv_task(mut frames_rx: CustomSinkMediaPortRx) {

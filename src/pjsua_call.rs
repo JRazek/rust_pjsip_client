@@ -211,7 +211,7 @@ impl<'a> PjsuaIncomingCall<'a> {
 
 type CallStateReceiver = tokio::sync::mpsc::Receiver<(pjsua::pjsua_call_id, PjsipInvState)>;
 
-use super::pjmedia_port_audio_sink::*;
+use super::pjmedia::pjmedia_port_audio_sink::*;
 
 async fn await_call_state(
     state_rx: &mut CallStateReceiver,

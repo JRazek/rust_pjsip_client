@@ -1,6 +1,6 @@
 pub mod error;
 pub mod pj_types;
-pub mod pjmedia_port_audio_sink;
+pub mod pjmedia;
 pub mod pjsua_account_config;
 pub mod pjsua_call;
 pub mod pjsua_config;
