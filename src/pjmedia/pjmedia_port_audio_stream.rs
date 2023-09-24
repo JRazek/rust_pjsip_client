@@ -1,6 +1,5 @@
 use crate::error::get_error_as_result;
 use crate::error::PjsuaError;
-use crate::ffi_assert;
 use crate::pjsua_memory_pool::PjsuaMemoryPool;
 
 use crate::pj_types::PjString;
@@ -13,30 +12,46 @@ use super::pjmedia_api;
 
 use crate::pjsua_softphone_api::PjsuaInstanceStarted;
 
+use std::panic::catch_unwind;
+
+use crate::error::ffi_assert_res;
+
+use super::next_num;
+
 unsafe extern "C" fn custom_port_get_frame(
     port: *mut pjsua::pjmedia_port,
-    frame: *mut pjsua::pjmedia_frame,
+    tx_frame: *mut pjsua::pjmedia_frame,
 ) -> pjsua::pj_status_t {
-    let media_port_data = unsafe { (*port).port_data.pdata as *mut MediaPortData };
-    let _sample_rate = (*media_port_data).sample_rate;
-    let _channels_count = (*media_port_data).channels_count;
+    let res = catch_unwind(|| {
+        let media_port_data = unsafe { (*port).port_data.pdata as *mut MediaPortData };
+        let _sample_rate = (*media_port_data).sample_rate;
+        let _channels_count = (*media_port_data).channels_count;
 
-    let frame_type = unsafe { (*frame).type_ };
+        let frame_type = unsafe { (*tx_frame).type_ };
 
-    if let pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO = frame_type {
-        eprintln!("custom_port_get_frame");
+        let tx_frame = &mut *tx_frame;
 
-        let frame = &mut *frame;
-        if let Ok(frame_recv) = (*media_port_data).frames_rx.try_recv() {
-            ffi_assert!(frame_recv.data.len() <= frame.size);
+        let tx_frame_data: &mut [u8] =
+            std::slice::from_raw_parts_mut(tx_frame.buf as *mut _, tx_frame.size);
 
-            let frame_data: &mut [u8] =
-                std::slice::from_raw_parts_mut(frame.buf as *mut _, frame.size);
+        if let pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO = frame_type {
+            match (*media_port_data).frames_rx.try_recv() {
+                Ok(rx_frame) => {
+                    assert!(rx_frame.data.len() == tx_frame_data.len());
 
-            frame_data.copy_from_slice(frame_recv.data.as_ref());
-            frame.size = frame_recv.data.len();
+                    tx_frame_data.copy_from_slice(rx_frame.data.as_ref());
+                    tx_frame.timestamp.u64_ = rx_frame.time.as_micros() as u64;
+                }
+                _ => {
+                    tx_frame.timestamp.u64_ = 0;
+                    tx_frame.size = 0;
+                    tx_frame.type_ = pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_NONE;
+                }
+            }
         }
-    }
+    });
+
+    ffi_assert_res(res);
 
     return 0; // or appropriate status
 }
@@ -69,13 +84,26 @@ pub struct CustomStreamMediaPortTx {
 
 use super::pjmedia_api::SendError;
 
+use std::intrinsics::unlikely as unlikely_branch;
+
 impl CustomStreamMediaPortTx {
-    pub async fn send(&self, frame: Frame) -> Result<(), SendError> {
+    pub async fn send(&self, mut frame: Frame) -> Result<(), SendError> {
         assert!(self.bits_per_sample % 8 == 0);
         let bytes_in_sample = self.bits_per_sample / 8;
 
-        if frame.data.len() / bytes_in_sample > self.samples_per_frame {
+        if unlikely_branch(frame.data.len() / bytes_in_sample > self.samples_per_frame) {
             return Err(SendError::InvalidSizeFrameError(frame));
+        }
+
+        if unlikely_branch(frame.data.len() / bytes_in_sample < self.samples_per_frame) {
+            let mut frame_resized = frame.data.into_vec();
+
+            frame_resized.resize(self.samples_per_frame * bytes_in_sample, 0);
+
+            frame = Frame {
+                data: frame_resized.into_boxed_slice(),
+                time: frame.time,
+            };
         }
 
         match self.frames_tx.send(frame).await {
@@ -94,7 +122,7 @@ impl<'a> CustomStreamMediaPort<'a> {
     ) -> Result<(Self, CustomStreamMediaPortTx), PjsuaError> {
         let mut base: Box<pjsua::pjmedia_port> = Box::new(unsafe { std::mem::zeroed() });
 
-        let name = PjString::alloc("CustomStreamMediaPort", &mem_pool);
+        let name = PjString::alloc(format!("CustomStreamMediaPort_{}", next_num()), &mem_pool);
 
         let format = Box::new(pjmedia_api::port_format(
             sample_rate,

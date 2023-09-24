@@ -1,5 +1,3 @@
-
-
 use super::pjsua_memory_pool::{PjsuaMemoryPool, PoolBuffer};
 
 pub struct PjString<'a> {
@@ -8,7 +6,8 @@ pub struct PjString<'a> {
 }
 
 impl<'a> PjString<'a> {
-    pub fn alloc(string: &str, mem_pool: &'a PjsuaMemoryPool) -> PjString<'a> {
+    pub fn alloc(string: impl AsRef<str>, mem_pool: &'a PjsuaMemoryPool) -> PjString<'a> {
+        let string = string.as_ref();
         let mut pool_buffer = mem_pool.alloc::<u8>(string.len() + 1);
 
         let pj_str = pjsua::pj_str_t {

@@ -49,13 +49,28 @@ pub async fn read_pcm_and_send_task(
 
     let bytes_in_sample = bits_per_sample / 8;
 
-    while let Some(chunk) = buffer.chunks(samples_per_frame * bytes_in_sample).next() {
-        let frame = Frame {
-            data: chunk.into(),
-            time: std::time::Duration::from_micros(i * sample_duration_usec as u64),
-        };
+    let mut iter = buffer.chunks(samples_per_frame * bytes_in_sample);
 
-        frames_tx.send(frame).await.unwrap();
+    while let Some(chunk) = iter.next() {
+        if chunk.len() != samples_per_frame * bytes_in_sample {
+            let mut chunk_resized = chunk.to_vec();
+
+            chunk_resized.resize(samples_per_frame * bytes_in_sample, 0);
+
+            let frame = Frame::new(
+                chunk_resized.into_boxed_slice(),
+                std::time::Duration::from_micros(i * sample_duration_usec as u64),
+            );
+
+            frames_tx.send(frame).await.unwrap();
+        } else {
+            let frame = Frame::new(
+                chunk,
+                std::time::Duration::from_micros(i * sample_duration_usec as u64),
+            );
+
+            frames_tx.send(frame).await.unwrap();
+        }
 
         i += 1;
     }
@@ -75,7 +90,7 @@ pub async fn handle_call(incoming_call: pjsua_call::PjsuaIncomingCall<'_>) {
         CustomSinkMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
 
     let (stream_media_port, frames_tx) =
-        CustomStreamMediaPort::new(22050, 1, 8000, &mem_pool).expect("test");
+        CustomStreamMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
 
     let call = call
         .add(sink_media_port, stream_media_port, &mem_pool)
@@ -86,7 +101,7 @@ pub async fn handle_call(incoming_call: pjsua_call::PjsuaIncomingCall<'_>) {
         read_pcm_and_send_task(
             Path::new("samples/gettysburg.raw"),
             frames_tx,
-            22050,
+            8000,
             1,
             16,
             8000,

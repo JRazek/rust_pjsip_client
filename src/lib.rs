@@ -1,3 +1,5 @@
+#![feature(core_intrinsics)]
+
 pub mod error;
 pub mod pj_types;
 pub mod pjmedia;

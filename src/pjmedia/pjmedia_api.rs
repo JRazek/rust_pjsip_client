@@ -132,8 +132,11 @@ impl Frame {
         })
     }
 
-    pub(crate) fn new(data: Box<[u8]>, time: std::time::Duration) -> Self {
-        Frame { data, time }
+    pub fn new(data: impl Into<Box<[u8]>>, time: std::time::Duration) -> Self {
+        Frame {
+            data: data.into(),
+            time,
+        }
     }
 }
 

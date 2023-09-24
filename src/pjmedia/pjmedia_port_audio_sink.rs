@@ -98,6 +98,8 @@ impl CustomSinkMediaPortRx {
 
 use crate::pjsua_softphone_api::PjsuaInstanceStarted;
 
+use super::next_num;
+
 impl<'a> CustomSinkMediaPort<'a> {
     pub fn new(
         sample_rate: u32,
@@ -107,7 +109,7 @@ impl<'a> CustomSinkMediaPort<'a> {
     ) -> Result<(Self, CustomSinkMediaPortRx), PjsuaError> {
         let mut base: Box<pjsua::pjmedia_port> = Box::new(unsafe { std::mem::zeroed() });
 
-        let name = PjString::alloc("CustomMediaPort", &mem_pool);
+        let name = PjString::alloc(format!("CustomSinkMediaPort_{}", next_num()), &mem_pool);
 
         let format = Box::new(pjmedia_api::port_format(
             sample_rate,
