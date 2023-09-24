@@ -28,12 +28,13 @@ unsafe extern "C" fn custom_port_get_frame(
 
         let frame = &mut *frame;
         if let Ok(frame_recv) = (*media_port_data).frames_rx.try_recv() {
-            ffi_assert!(frame_recv.data.len() == (*frame).size);
+            ffi_assert!(frame_recv.data.len() <= frame.size);
 
             let frame_data: &mut [u8] =
                 std::slice::from_raw_parts_mut(frame.buf as *mut _, frame.size);
 
             frame_data.copy_from_slice(frame_recv.data.as_ref());
+            frame.size = frame_recv.data.len();
         }
     }
 
@@ -62,6 +63,7 @@ pub struct CustomStreamMediaPort<'a> {
 
 pub struct CustomStreamMediaPortTx {
     frames_tx: tokio_mpsc::Sender<Frame>,
+    bits_per_sample: usize,
     samples_per_frame: usize,
 }
 
@@ -69,7 +71,10 @@ use super::pjmedia_api::SendError;
 
 impl CustomStreamMediaPortTx {
     pub async fn send(&self, frame: Frame) -> Result<(), SendError> {
-        if frame.data.len() != self.samples_per_frame {
+        assert!(self.bits_per_sample % 8 == 0);
+        let bytes_in_sample = self.bits_per_sample / 8;
+
+        if frame.data.len() / bytes_in_sample > self.samples_per_frame {
             return Err(SendError::InvalidSizeFrameError(frame));
         }
 
@@ -84,7 +89,7 @@ impl<'a> CustomStreamMediaPort<'a> {
     pub fn new(
         sample_rate: u32,
         channels_count: usize,
-        samples_per_frame: u32,
+        samples_per_frame: usize,
         mem_pool: &'a PjsuaMemoryPool,
     ) -> Result<(Self, CustomStreamMediaPortTx), PjsuaError> {
         let mut base: Box<pjsua::pjmedia_port> = Box::new(unsafe { std::mem::zeroed() });
@@ -122,6 +127,7 @@ impl<'a> CustomStreamMediaPort<'a> {
             CustomStreamMediaPortTx {
                 frames_tx,
                 samples_per_frame: samples_per_frame as usize,
+                bits_per_sample: pjmedia_api::BITS_PER_SAMPLE,
             },
         ))
     }

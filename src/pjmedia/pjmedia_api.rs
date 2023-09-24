@@ -4,14 +4,14 @@ use std::sync::atomic::AtomicU32;
 
 use tokio::sync::mpsc as tokio_mpsc;
 
-const BITS_PER_SAMPLE: u32 = 16;
+pub(super) const BITS_PER_SAMPLE: usize = 16;
 
 pub(super) fn perform_pjmedia_format_checks_zero_division(
-    samples_per_frame: u32,
+    samples_per_frame: usize,
     audio_format_detail: &pjsua::pjmedia_audio_format_detail,
 ) -> Result<(), PjsuaError> {
-    let port_ptime = samples_per_frame / audio_format_detail.channel_count * 1000
-        / audio_format_detail.clock_rate;
+    let port_ptime = samples_per_frame as u64 / audio_format_detail.channel_count as u64 * 1000
+        / audio_format_detail.clock_rate as u64;
 
     if port_ptime == 0 {
         let message = format!("samples_per_frame is too low! port_ptime = samples_per_frame / channel_count * 1000 / clock_rate is 0! \
@@ -69,7 +69,7 @@ pub unsafe fn port_info(
 pub(super) fn port_format(
     sample_rate: u32,
     channels_count: usize,
-    samples_per_frame: u32,
+    samples_per_frame: usize,
 ) -> Result<pjsua::pjmedia_format, PjsuaError> {
     let mut format: pjsua::pjmedia_format = unsafe { std::mem::zeroed() };
 
@@ -82,7 +82,7 @@ pub(super) fn port_format(
     let frame_time_usec =
         samples_per_frame as u64 * 1_000_000 / channels_count as u64 / sample_rate as u64;
 
-    let avg_bps = sample_rate * channels_count as u32 * BITS_PER_SAMPLE;
+    let avg_bps = sample_rate * channels_count as u32 * BITS_PER_SAMPLE as u32;
 
     //TODO: value that is set here, is not visible in
     //format.det.aud!
@@ -91,7 +91,7 @@ pub(super) fn port_format(
 
         det.clock_rate = sample_rate;
         det.channel_count = channels_count as u32;
-        det.bits_per_sample = BITS_PER_SAMPLE;
+        det.bits_per_sample = BITS_PER_SAMPLE as u32;
         det.frame_time_usec = frame_time_usec as u32;
         det.avg_bps = avg_bps;
         det.max_bps = avg_bps;

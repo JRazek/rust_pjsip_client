@@ -1,3 +1,6 @@
+use std::path::Path;
+
+use pjsip_client::pj_types::Frame;
 use pjsip_client::pjsua_account_config::AccountConfig;
 use pjsip_client::pjsua_config::PjsuaConfig;
 use pjsip_client::pjsua_softphone_api::PjsuaInstanceUninit;
@@ -7,9 +10,11 @@ use pjsip_client::pjsua_memory_pool::PjsuaMemoryPool;
 
 use pjsip_client::pjmedia::pjmedia_port_audio_sink::{CustomSinkMediaPort, CustomSinkMediaPortRx};
 use pjsip_client::pjmedia::pjmedia_port_audio_stream::{
-    CustomStreamMediaPort,
+    CustomStreamMediaPort, CustomStreamMediaPortTx,
 };
 use pjsip_client::pjsua_call;
+
+use tokio::fs::read as read_file;
 
 pub async fn recv_task(mut frames_rx: CustomSinkMediaPortRx) {
     let mut i = 0;
@@ -26,6 +31,38 @@ pub async fn recv_task(mut frames_rx: CustomSinkMediaPortRx) {
     }
 }
 
+pub async fn read_pcm_and_send_task(
+    path: impl AsRef<Path>,
+    frames_tx: CustomStreamMediaPortTx,
+    sample_rate: u32,
+    channels_count: usize,
+    bits_per_sample: usize,
+    samples_per_frame: usize,
+) -> Result<(), std::io::Error> {
+    let buffer = tokio::fs::read(path).await?;
+
+    let mut i = 0;
+
+    let sample_duration_usec = 1_000_000 / channels_count as u32 / sample_rate as u32;
+
+    assert!(bits_per_sample % 8 == 0);
+
+    let bytes_in_sample = bits_per_sample / 8;
+
+    while let Some(chunk) = buffer.chunks(samples_per_frame * bytes_in_sample).next() {
+        let frame = Frame {
+            data: chunk.into(),
+            time: std::time::Duration::from_micros(i * sample_duration_usec as u64),
+        };
+
+        frames_tx.send(frame).await.unwrap();
+
+        i += 1;
+    }
+
+    Ok(())
+}
+
 pub async fn handle_call(incoming_call: pjsua_call::PjsuaIncomingCall<'_>) {
     let mem_pool = PjsuaMemoryPool::new(10000, 10000).expect("Failed to create memory pool");
 
@@ -34,16 +71,29 @@ pub async fn handle_call(incoming_call: pjsua_call::PjsuaIncomingCall<'_>) {
         .await
         .expect("answer failed!");
 
-    let (sink_media_port, _frames_rx) =
+    let (sink_media_port, frames_rx) =
         CustomSinkMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
 
-    let (stream_media_port, _frames_tx) =
-        CustomStreamMediaPort::new(8000, 1, 8000, &mem_pool).expect("test");
+    let (stream_media_port, frames_tx) =
+        CustomStreamMediaPort::new(22050, 1, 8000, &mem_pool).expect("test");
 
     let call = call
         .add(sink_media_port, stream_media_port, &mem_pool)
         .await
         .expect("connect failed!");
+
+    tokio::spawn(async {
+        read_pcm_and_send_task(
+            Path::new("samples/gettysburg.raw"),
+            frames_tx,
+            22050,
+            1,
+            16,
+            8000,
+        )
+        .await
+        .unwrap()
+    });
 
     call.await_hangup().await.expect("hangup failed!");
 }

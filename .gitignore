@@ -6,6 +6,7 @@
 !src/
 !docs/
 !examples/
+!samples/
 
 # Don't ignore specific files
 !.gitignore
@@ -19,3 +20,4 @@
 !src/**
 !docs/**
 !examples/**
+!samples/**

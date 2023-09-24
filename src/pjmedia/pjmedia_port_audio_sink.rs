@@ -112,7 +112,7 @@ impl<'a> CustomSinkMediaPort<'a> {
         let format = Box::new(pjmedia_api::port_format(
             sample_rate,
             channels_count,
-            samples_per_frame,
+            samples_per_frame as _,
         )?);
 
         let port_info = unsafe { pjmedia_api::port_info(format.as_ref(), name.as_ref()) };
