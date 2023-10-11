@@ -6,7 +6,9 @@ use crate::pj_types::PjString;
 
 use crate::pj_types::Frame;
 
-use tokio::sync::mpsc as tokio_mpsc;
+use futures::channel::mpsc as futures_mpsc;
+use futures::Sink;
+use futures::SinkExt;
 
 use super::pjmedia_api;
 
@@ -37,8 +39,8 @@ unsafe extern "C" fn custom_port_get_frame(
             std::slice::from_raw_parts_mut(tx_frame.buf as *mut _, tx_frame.size);
 
         if let pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO = frame_type {
-            match (*media_port_data).frames_rx.try_recv() {
-                Ok(rx_frame) => {
+            match (*media_port_data).frames_rx.try_next() {
+                Ok(Some(rx_frame)) => {
                     assert!(rx_frame.data.len() == tx_frame_data.len());
 
                     tx_frame_data.copy_from_slice(rx_frame.data.as_ref());
@@ -67,7 +69,7 @@ unsafe extern "C" fn custom_port_on_destroy(port: *mut pjsua::pjmedia_port) -> p
 }
 
 struct MediaPortData {
-    frames_rx: tokio_mpsc::Receiver<Frame>,
+    frames_rx: futures_mpsc::Receiver<Frame>,
 
     sample_rate: u32,
     channels_count: usize,
@@ -80,7 +82,7 @@ pub struct CustomStreamMediaPort<'a> {
 }
 
 pub struct CustomStreamMediaPortTx {
-    frames_tx: tokio_mpsc::Sender<Frame>,
+    frames_tx: futures_mpsc::Sender<Frame>,
     bits_per_sample: usize,
     samples_per_frame: usize,
 }
@@ -97,7 +99,7 @@ impl CustomStreamMediaPortTx {
         self.samples_per_frame
     }
 
-    pub async fn send(&self, mut frame: Frame) -> Result<(), SendError> {
+    pub async fn send(&mut self, mut frame: Frame) -> Result<(), SendError> {
         assert!(self.bits_per_sample % 8 == 0);
         let bytes_in_sample = self.bits_per_sample / 8;
 
@@ -116,10 +118,10 @@ impl CustomStreamMediaPortTx {
             };
         }
 
-        match self.frames_tx.send(frame).await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(SendError::TokioSendError(e)),
-        }
+        self.frames_tx
+            .send(frame)
+            .await
+            .map_err(|_| SendError::SendErr)
     }
 }
 
@@ -146,7 +148,7 @@ impl<'a> CustomStreamMediaPort<'a> {
 
         base.info = port_info?;
 
-        let (frames_tx, frames_rx) = tokio_mpsc::channel(512);
+        let (frames_tx, frames_rx) = futures_mpsc::channel(512);
 
         base.port_data.pdata = Box::into_raw(Box::new(MediaPortData {
             frames_rx,
@@ -225,5 +227,34 @@ impl<'a> Drop for CustomStreamMediaPortAdded<'a> {
 
         let status = unsafe { pjsua::pjmedia_port_destroy(self.base.as_mut()) };
         get_error_as_result(status).unwrap();
+    }
+}
+
+impl Sink<Frame> for CustomStreamMediaPortTx {
+    type Error = futures_mpsc::SendError;
+
+    fn poll_ready(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.frames_tx.poll_ready(cx)
+    }
+
+    fn start_send(mut self: std::pin::Pin<&mut Self>, item: Frame) -> Result<(), Self::Error> {
+        self.frames_tx.start_send(item)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.frames_tx.poll_flush_unpin(cx)
+    }
+
+    fn poll_close(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.frames_tx.poll_close_unpin(cx)
     }
 }

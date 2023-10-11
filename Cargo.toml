@@ -12,6 +12,7 @@ pjsua = { git = "https://github.com/JRazek/pjproject.git", branch = "update-rust
 delegate = "0.10.0"
 tokio = { version = "1.32.0", features = ["full"] }
 thingbuf = "0.1.1"
+futures = "0.3.28"
 
 [build-dependencies]
 pkg-config = "0.3.27"

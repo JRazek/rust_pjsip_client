@@ -70,7 +70,7 @@ pub struct PjsuaInstanceStarted {
     _log_config: pjsua_config::LogConfig,
     _pjsua_config: pjsua_config::PjsuaConfig,
     _transport: transport::PjsuaTransport,
-    handle: PjsuaInstanceHandle,
+    _handle: PjsuaInstanceHandle,
 }
 
 impl PjsuaInstanceInitTransportConfigured {
@@ -85,7 +85,7 @@ impl PjsuaInstanceInitTransportConfigured {
             _log_config: self.pjsua_instance_init.log_config,
             _pjsua_config: self.pjsua_instance_init.pjsua_config,
             _transport: self.transport,
-            handle,
+            _handle: handle,
         };
 
         Ok(instance_started)

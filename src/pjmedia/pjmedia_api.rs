@@ -151,7 +151,7 @@ pub(crate) unsafe fn get_samples_diff(
 
 #[derive(Debug)]
 pub enum SendError {
-    TokioSendError(tokio_mpsc::error::SendError<Frame>),
+    SendErr,
     InvalidSizeFrameError(Frame),
 }
 
@@ -160,7 +160,8 @@ impl std::error::Error for SendError {}
 impl std::fmt::Display for SendError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            SendError::TokioSendError(e) => write!(f, "TokioSendError: {}", e),
+            SendError::SendErr => write!(f, "SendErr"),
+     
             SendError::InvalidSizeFrameError(frame) => {
                 write!(f, "InvalidSizeFrameError: {:?}", frame)
             }

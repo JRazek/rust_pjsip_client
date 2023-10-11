@@ -201,3 +201,16 @@ impl<'a> Drop for CustomSinkMediaPortAdded<'a> {
         get_error_as_result(status).unwrap();
     }
 }
+
+use futures::Stream;
+
+impl Stream for CustomSinkMediaPortRx {
+    type Item = Frame;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Frame>> {
+        self.frames_rx.poll_recv(cx)
+    }
+}

@@ -9,7 +9,7 @@ pub struct PjsuaMemoryPool {
 pub struct PoolBuffer<'a, T: Sized + Default> {
     pool_buffer: &'a mut [T],
     objects_count: usize,
-    mem_pool: &'a PjsuaMemoryPool,
+    _mem_pool: &'a PjsuaMemoryPool,
 }
 
 impl<'a, T: Sized + Default> PoolBuffer<'a, T> {
@@ -62,7 +62,7 @@ impl PjsuaMemoryPool {
             PoolBuffer {
                 pool_buffer,
                 objects_count,
-                mem_pool: self,
+                _mem_pool: self,
             }
         }
     }
