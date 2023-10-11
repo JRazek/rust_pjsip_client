@@ -18,6 +18,8 @@ use crate::error::ffi_assert_res;
 
 use super::next_num;
 
+use std::ptr;
+
 unsafe extern "C" fn custom_port_get_frame(
     port: *mut pjsua::pjmedia_port,
     tx_frame: *mut pjsua::pjmedia_frame,
@@ -43,6 +45,7 @@ unsafe extern "C" fn custom_port_get_frame(
                     tx_frame.timestamp.u64_ = rx_frame.time.as_micros() as u64;
                 }
                 _ => {
+                    ptr::write_bytes(tx_frame.buf, 0, tx_frame.size);
                     tx_frame.timestamp.u64_ = 0;
                     tx_frame.size = 0;
                     tx_frame.type_ = pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_NONE;
