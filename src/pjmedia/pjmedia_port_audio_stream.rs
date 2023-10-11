@@ -87,6 +87,13 @@ use super::pjmedia_api::SendError;
 use std::intrinsics::unlikely as unlikely_branch;
 
 impl CustomStreamMediaPortTx {
+    pub fn bits_per_sample(&self) -> usize {
+        self.bits_per_sample
+    }
+    pub fn samples_per_frame(&self) -> usize {
+        self.samples_per_frame
+    }
+
     pub async fn send(&self, mut frame: Frame) -> Result<(), SendError> {
         assert!(self.bits_per_sample % 8 == 0);
         let bytes_in_sample = self.bits_per_sample / 8;
