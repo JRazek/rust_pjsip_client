@@ -104,7 +104,7 @@ impl<'a> CustomSinkMediaPort<'a> {
     pub fn new(
         sample_rate: u32,
         channels_count: usize,
-        samples_per_frame: u32,
+        samples_per_frame: usize,
         mem_pool: &'a PjsuaMemoryPool,
     ) -> Result<(Self, CustomSinkMediaPortRx), PjsuaError> {
         let mut base: Box<pjsua::pjmedia_port> = Box::new(unsafe { std::mem::zeroed() });

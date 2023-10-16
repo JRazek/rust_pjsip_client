@@ -131,7 +131,10 @@ unsafe extern "C" fn on_call_media_state(call_id: pjsua::pjsua_call_id) {
                         connect_slots(entry.slot, call_conf_port);
                     });
                 }
-                _ => {}
+                _ => {
+                    eprintln!("No call media data received!");
+                    ffi_assert!(false);
+                }
             };
         }
     }
