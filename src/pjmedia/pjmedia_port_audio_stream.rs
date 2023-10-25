@@ -36,14 +36,13 @@ unsafe extern "C" fn custom_port_get_frame(
         let tx_frame = &mut *tx_frame;
 
         let tx_frame_data: &mut [u8] =
-            std::slice::from_raw_parts_mut(tx_frame.buf as *mut _, tx_frame.size);
+            std::slice::from_raw_parts_mut(tx_frame.buf as *mut _, tx_frame.size * 2);
 
         if let pjsua::pjmedia_frame_type_PJMEDIA_FRAME_TYPE_AUDIO = frame_type {
             match (*media_port_data).frames_rx.try_next() {
                 Ok(Some(rx_frame)) => {
-                    assert!(rx_frame.data.len() == tx_frame_data.len());
-
-                    tx_frame_data.copy_from_slice(rx_frame.data.as_ref());
+                    let frame_bytes: &[u8] = bytemuck::cast_slice(rx_frame.data.as_ref());
+                    tx_frame_data.copy_from_slice(frame_bytes);
                     tx_frame.timestamp.u64_ = rx_frame.time.as_micros() as u64;
                 }
                 _ => {

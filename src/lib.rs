@@ -1,4 +1,6 @@
 #![feature(core_intrinsics)]
+#![feature(iter_next_chunk)]
+#![feature(iter_array_chunks)]
 
 pub mod error;
 pub mod pj_types;

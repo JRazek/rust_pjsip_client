@@ -104,27 +104,37 @@ pub(super) fn port_format(
 
 #[derive(Debug)]
 pub struct Frame {
-    pub data: Box<[u8]>,
+    pub data: Box<[i16]>,
     pub time: std::time::Duration,
 }
 
 impl Frame {
     pub(crate) unsafe fn from_raw_frame(
-        frame_raw: &pjsua::pjmedia_frame,
+        raw_frame: &pjsua::pjmedia_frame,
         sample_rate: u32,
         channels_count: usize,
     ) -> Result<Self, PjsuaError> {
-        type SampleType = u8;
+        if raw_frame.size % raw_frame.size != 0 {
+            Err(PjsuaError {
+                code: -1,
+                message: "frame buffer is not even cannot construct i16 array".to_string(),
+            })?;
+        }
 
-        let buffer_size = frame_raw.size / std::mem::size_of::<SampleType>() as usize;
+        let frame_data: &[u8] =
+            unsafe { std::slice::from_raw_parts(raw_frame.buf as *const u8, raw_frame.size) };
 
-        let frame_data =
-            unsafe { std::slice::from_raw_parts(frame_raw.buf as *const SampleType, buffer_size) };
-        let frame_data = Box::from_iter(frame_data.iter().cloned());
+        let frame_data = Box::from_iter(
+            frame_data
+                .iter()
+                .cloned()
+                .array_chunks::<2>()
+                .map(|bytes| i16::from_le_bytes(bytes)),
+        );
 
         let timestamp0: pjsua::pj_timestamp = unsafe { std::mem::zeroed() };
 
-        let samples_elapsed = unsafe { get_samples_diff(timestamp0, frame_raw.timestamp) };
+        let samples_elapsed = unsafe { get_samples_diff(timestamp0, raw_frame.timestamp) };
 
         Ok(Frame {
             data: frame_data,
@@ -132,7 +142,7 @@ impl Frame {
         })
     }
 
-    pub fn new(data: impl Into<Box<[u8]>>, time: std::time::Duration) -> Self {
+    pub fn new(data: impl Into<Box<[i16]>>, time: std::time::Duration) -> Self {
         Frame {
             data: data.into(),
             time,
@@ -161,7 +171,7 @@ impl std::fmt::Display for SendError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             SendError::SendErr => write!(f, "SendErr"),
-     
+
             SendError::InvalidSizeFrameError(frame) => {
                 write!(f, "InvalidSizeFrameError: {:?}", frame)
             }
